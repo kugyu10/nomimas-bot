@@ -88,3 +88,34 @@ Deno.test("twiplaProvider.canHandle: twipla.jp のイベントURLのみ true", a
   assertEquals(twiplaProvider.canHandle("https://twipla.jp:8080/events/123"), false, "ポート明示URLは false（WR-02）");
   assertEquals(twiplaProvider.canHandle("not-a-url"), false, "不正URLは false");
 });
+
+// IN-08: クエリ文字列・フラグメント付きURLの拒否テスト
+Deno.test("twiplaProvider.canHandle (IN-08): query/hash付きURLは false", async () => {
+  const { twiplaProvider } = await import("../_shared/providers/twipla.ts");
+
+  // IN-08: クエリ付きURL（UTMパラメータ等）は false
+  assertEquals(
+    twiplaProvider.canHandle("https://twipla.jp/events/731057?utm_source=x"),
+    false,
+    "クエリ付きURL(utm_source=x) は false（IN-08）",
+  );
+  assertEquals(
+    twiplaProvider.canHandle("https://twipla.jp/events/731057?ref=twitter"),
+    false,
+    "クエリ付きURL(ref=twitter) は false（IN-08）",
+  );
+
+  // IN-08: フラグメント付きURL は false
+  assertEquals(
+    twiplaProvider.canHandle("https://twipla.jp/events/731057#section"),
+    false,
+    "フラグメント付きURL(#section) は false（IN-08）",
+  );
+
+  // 正規URL（クエリなし・フラグメントなし）は引き続き true
+  assertEquals(
+    twiplaProvider.canHandle("https://twipla.jp/events/731057"),
+    true,
+    "正規URL（クエリなし・フラグメントなし）は true のまま（回帰なし）",
+  );
+});

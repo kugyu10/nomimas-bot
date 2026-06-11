@@ -113,6 +113,15 @@ export const twiplaProvider: ParticipantListProvider = {
       return false;
     }
 
+    // IN-08: クエリ文字列やフラグメントが付いたURLを拒否する
+    // eq("url") によるDB照合は正規URLと完全一致するため、
+    // クエリ/ハッシュ付きURLは保存される正規URLと一致せず saved:false になる
+    // canHandle で早期拒否することで照合不整合経路を遮断する
+    // （URL正規化はPhase 3のURL登録UIで再検討 — IN-08軽量対応）
+    if (parsed.search !== "" || parsed.hash !== "") {
+      return false;
+    }
+
     return true;
   },
 
