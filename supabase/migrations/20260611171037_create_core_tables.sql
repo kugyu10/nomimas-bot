@@ -10,6 +10,8 @@ create table public.oa_configs (
   line_channel_id text,
   admin_twitter_id text,
   greeting_message text,
+  -- D-01: 質問定義はJSONB配列。各要素は { "id": string, "text": string, "options": string[] }
+  questions jsonb not null default '[]'::jsonb,
   updated_at timestamptz not null default now(),
   created_at timestamptz not null default now()
 );
@@ -37,7 +39,8 @@ create table public.events (
   meeting_place text,
   fee text,
   venue_info text,
-  confirm_days_before integer not null default 3,
+  -- D-09: Locked決定。confirm_days_before default 7（研究がdefault 3との不一致を発見済み）
+  confirm_days_before integer not null default 7,
   updated_at timestamptz not null default now(),
   created_at timestamptz not null default now()
 );
@@ -54,13 +57,16 @@ create table public.event_platform_urls (
 
 -- LINE友だちユーザー
 -- LINE-01/02/03: LINE最終確認配信・1問1答・回答収集の受信者
+-- D-15 (IN-06修正): グローバルuniqueを廃止し composite unique(oa_config_id, line_user_id) に変更
+--   oa_config_id は not null（nullableのままだとNULL行が複数並存しuniqueが機能しない — 01-REVIEW指摘どおり）
 create table public.line_users (
   id uuid primary key default gen_random_uuid(),
-  oa_config_id uuid references public.oa_configs(id) on delete set null,
-  line_user_id text not null unique,
+  oa_config_id uuid not null references public.oa_configs(id) on delete cascade,
+  line_user_id text not null,
   display_name text,
   followed_at timestamptz,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  unique(oa_config_id, line_user_id)
 );
 
 -- イベント参加者テーブル（スクレイピング結果の保持）
@@ -81,7 +87,10 @@ create table public.participants (
   status text not null check (status in ('attending', 'interested', 'declined', 'unknown')),
   source_platform text not null default 'twipla',
   line_user_id uuid references public.line_users(id) on delete set null,
-  confirm_status text not null default 'pending',
+  -- D-05: ステートマシン状態はparticipantsに保持、別テーブルは作らない
+  confirm_status text not null default 'pending' check (confirm_status in ('pending','sent','in_progress','completed')),
+  -- D-05: 1問1答進行位置（0-indexed）
+  current_question_index integer not null default 0,
   scraped_at timestamptz,
   updated_at timestamptz not null default now(),
   created_at timestamptz not null default now(),
@@ -93,6 +102,8 @@ create table public.participants (
 create table public.answers (
   id uuid primary key default gen_random_uuid(),
   participant_id uuid not null references public.participants(id) on delete cascade,
+  -- question_key: oa_configs.questions の id を格納する（列名維持 — rename不要: 裁量確定）
+  -- 再回答はアプリ側UPSERTで answered_at を明示更新（answersにはset_updated_atトリガーなし — RESEARCH Pitfall 9）
   question_key text not null,
   question_text text,
   answer text,
