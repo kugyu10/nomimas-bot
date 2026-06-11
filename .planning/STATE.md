@@ -54,7 +54,8 @@ None yet.
 ### Blockers/Concerns
 
 - （解消済み 2026-06-12）LINEのチャネルアクセストークンは静的発行せず、実行時にステートレストークン(v3・有効15分)を channel_id+channel_secret から都度発行する（POST https://api.line.me/oauth2/v3/token）。dev/prod両チャネルとも発行テスト成功済み。実機配信テストは夜間から可能
-- X OAuthアプリ未作成 — Phase 3の認証はプロバイダー設定を後から差し込める構造で実装（テストプロバイダー/モックでフロー検証）
+- （一部解消 2026-06-12）X OAuthアプリ作成済み・Client ID/Secretはenvに格納済み（当面devアプリをprodにも流用）。残作業: Supabase Auth側のTwitterプロバイダー有効化（Dashboard or Management API）と、Xアプリ側コールバックURL（https://<ref>.supabase.co/auth/v1/callback がdev/prod両方登録済みか）の確認。未確認のうちはモック認証フォールバックを維持
+- Twiplaサンプルイベント（スクレイパー実地検証用）: https://twipla.jp/events/731057
 - リポジトリはpublic — env.dev / env.prod のgitignore徹底（Phase 1成功条件5）
 
 ## Deferred Items

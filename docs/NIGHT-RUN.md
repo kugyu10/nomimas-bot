@@ -29,7 +29,7 @@ caffeinate -dims claude --dangerously-skip-permissions
 補足を添える場合の例:
 
 ```
-/gsd:autonomous Twiplaのサンプルイベント: https://twipla.jp/events/xxxxx
+/gsd:autonomous Twiplaのサンプルイベント: https://twipla.jp/events/731057
 実DBはdev環境(cmsxvxtcdniqgvhxjqri)のみ使用。prodには一切触れないこと。
 フェーズ完了ごとにgit commit & push。
 ```
