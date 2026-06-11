@@ -83,6 +83,8 @@ grant execute on function public.count_unlinked_confirm_targets() to service_rol
 -- cron.schedule: 日次配信トリガー（01:00 UTC = 10:00 JST）
 -- ジョブ本文はVaultシークレット名参照のみ — URLもキー値もリテラルで書かない（T-02-01）
 -- timeout_milliseconds = 30000（RESEARCH Pitfall 10の安全値）
+-- WR-01: x-cron-key ヘッダで message-sender の専用シークレット照合を通過する
+--   （Vault 'cron_shared_secret' は scripts/setup-dev.ts が env から投入）
 -- ----------------------------------------------------------------------------
 select cron.schedule(
   'confirm-broadcast-daily',
@@ -100,6 +102,11 @@ select cron.schedule(
         select decrypted_secret
         from vault.decrypted_secrets
         where name = 'cron_function_key'
+      ),
+      'x-cron-key', (
+        select decrypted_secret
+        from vault.decrypted_secrets
+        where name = 'cron_shared_secret'
       )
     ),
     body := '{}'::jsonb,

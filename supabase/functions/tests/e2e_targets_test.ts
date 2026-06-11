@@ -298,12 +298,14 @@ Deno.test({
       );
 
       // message-sender curl
+      // WR-01: anonキー（ゲートウェイJWT）に加え x-cron-key 専用シークレットが必要
       const resp = await fetch(
         `https://${projectRef}.supabase.co/functions/v1/message-sender`,
         {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${anonKey}`,
+            "x-cron-key": getRequiredEnv("CRON_FUNCTION_KEY"),
             "Content-Type": "application/json",
           },
           body: JSON.stringify({}),

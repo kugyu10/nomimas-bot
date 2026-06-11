@@ -176,10 +176,12 @@ Deno.test({
       assertEquals(Number(answersSetup[0]?.count), 0, "(a) セットアップ: answers が 0行 であること");
 
       // === (b) message-sender → confirm_status='sent' ===
+      // WR-01: anonキー（ゲートウェイJWT）に加え x-cron-key 専用シークレットが必要
       const senderResp = await fetch(senderUrl, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${anonKey}`,
+          "x-cron-key": getRequiredEnv("CRON_FUNCTION_KEY"),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({}),

@@ -8,10 +8,14 @@
  * cronはVaultのanonキーで正規に通過する設計（RESEARCH Pattern 1 / T-02-07）
  *
  * セキュリティ:
+ *   - WR-01: ゲートウェイJWT（anonキー）に加えて x-cron-key ヘッダを専用シークレット
+ *     CRON_FUNCTION_KEY と照合する（anonキーがクライアント配布されても配信を起動できない）。
+ *     cron側はVaultの 'cron_shared_secret' から同値を送る（scripts/setup-dev.ts が投入）
  *   - トークン値・メッセージ本文・フルUserIdはログしない（T-02-08）
  *   - participant_id（UUID）はログ可
  *
  * 処理フロー:
+ *   0. x-cron-key 認可チェック（WR-01）
  *   1. 環境変数チェック（LINE_CHANNEL_ID / LINE_CHANNEL_SECRET）
  *   2. get_confirm_targets() で配信対象取得。0件なら早期 return
  *   3. count_unlinked_confirm_targets() で未紐付け件数をログ
@@ -58,6 +62,25 @@ interface ConfirmTarget {
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
     return new Response("Method Not Allowed", { status: 405 });
+  }
+
+  // 0. 認可チェック（WR-01）: ゲートウェイJWT検証に加え専用シークレットを照合
+  //    anonキーは publishable クラスでPhase 3以降クライアントに配布されるため、
+  //    anonキー単独では配信をトリガーできないようにする
+  const cronKey = Deno.env.get("CRON_FUNCTION_KEY") ?? "";
+  if (!cronKey) {
+    console.error("message-sender: CRON_FUNCTION_KEY is not set");
+    return new Response(JSON.stringify({ status: "error" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (req.headers.get("x-cron-key") !== cronKey) {
+    console.warn("message-sender: x-cron-key mismatch — rejecting");
+    return new Response(JSON.stringify({ status: "unauthorized" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   // 1. 環境変数チェック（設定エラー 500 でLINE障害 502 と区別）
