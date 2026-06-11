@@ -84,5 +84,6 @@ Deno.test("twiplaProvider.canHandle: twipla.jp のイベントURLのみ true", a
   assertEquals(twiplaProvider.canHandle("https://twipla.jp/users/someone"), false, "/events/ 以外のパスは false");
   assertEquals(twiplaProvider.canHandle("ftp://twipla.jp/events/123"), false, "ftp スキームは false");
   assertEquals(twiplaProvider.canHandle("https://evil.twipla.jp/events/123"), false, "サブドメインは false");
+  assertEquals(twiplaProvider.canHandle("https://twipla.jp:8080/events/123"), false, "ポート明示URLは false（WR-02）");
   assertEquals(twiplaProvider.canHandle("not-a-url"), false, "不正URLは false");
 });

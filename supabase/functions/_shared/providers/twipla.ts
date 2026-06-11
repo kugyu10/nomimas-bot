@@ -93,8 +93,14 @@ export const twiplaProvider: ParticipantListProvider = {
       return false;
     }
 
-    // hostnameは厳密に twipla.jp（サブドメイン・ポート付きも拒否）
+    // hostnameは厳密に twipla.jp（サブドメインを拒否）
     if (parsed.hostname !== "twipla.jp") {
+      return false;
+    }
+
+    // ポート明示のURLを拒否（URL.hostnameはポートを含まないため別途チェック — WR-02）
+    // 標準ポートのWebページのみ許可し、twipla.jpへのポートスキャンを防ぐ
+    if (parsed.port !== "") {
       return false;
     }
 
