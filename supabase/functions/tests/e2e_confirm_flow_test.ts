@@ -110,14 +110,15 @@ async function sendSignedEvent(
 
 /**
  * postback イベントオブジェクトを生成する
+ * @param isRedelivery 再配達フラグ（WR-03検証用。デフォルト false）
  */
-function makePostbackEvent(userId: string, data: string): object {
+function makePostbackEvent(userId: string, data: string, isRedelivery = false): object {
   return {
     type: "postback",
     replyToken: "dummy-reply-token-" + crypto.randomUUID(),
     source: { type: "user", userId },
     postback: { data },
-    deliveryContext: { isRedelivery: false },
+    deliveryContext: { isRedelivery },
     webhookEventId: crypto.randomUUID(),
   };
 }
@@ -264,6 +265,29 @@ Deno.test({
         SELECT current_question_index FROM public.participants WHERE id = ${SEED_PARTICIPANT_ID}
       `;
       assertEquals(afterReAnswerState[0]?.current_question_index, 1, "(d) current_question_index が 1 のまま（indexは変わらない）");
+
+      // === (d2) 再配達スキップ: 旧 Q1(a=0) postback の再配達が再回答(a=1)を巻き戻さない（WR-03） ===
+      const redeliveredQ1 = encodePostback(SEED_PARTICIPANT_ID, Q_AGE, 0);
+      const redeliveryResp = await sendSignedEvent(webhookUrl, channelSecret, [
+        makePostbackEvent(SEED_LINE_USER_ID_STR, redeliveredQ1, true),
+      ]);
+      assertEquals(redeliveryResp.status, 200, "(d2) 再配達postback → 200");
+      await redeliveryResp.body?.cancel();
+
+      const afterRedelivery = await sql<{ answer: string }[]>`
+        SELECT answer FROM public.answers
+        WHERE participant_id = ${SEED_PARTICIPANT_ID} AND question_key = ${Q_AGE}
+      `;
+      assertEquals(
+        afterRedelivery[0]?.answer,
+        q_age_options[1],
+        "(d2) 再配達postbackで answer が a=0 に巻き戻されないこと（WR-03）",
+      );
+
+      const afterRedeliveryState = await sql<{ current_question_index: number }[]>`
+        SELECT current_question_index FROM public.participants WHERE id = ${SEED_PARTICIPANT_ID}
+      `;
+      assertEquals(afterRedeliveryState[0]?.current_question_index, 1, "(d2) 再配達後も index が 1 のまま");
 
       // === (e) なりすまし拒否: 攻撃者userId で Q2 postback ===
       const q2DataAttack = encodePostback(SEED_PARTICIPANT_ID, Q_DRINK, 0);

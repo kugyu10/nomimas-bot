@@ -217,6 +217,15 @@ async function handleEvent(
   }
 
   if (event.kind === "postback") {
+    // WR-03: LINEから再配達された postback は処理しない（ログのみ・200）
+    // 過去質問の再タップ（ルール4）は冪等でないため、旧postbackの再配達が
+    // ユーザーの新しい再回答を巻き戻すのを防ぐ。現在質問の遷移もスキップして
+    // 二重処理を避ける（初回配達が処理済みである前提が isRedelivery の意味論）
+    if (event.isRedelivery) {
+      console.log("webhook: skipping redelivered postback event");
+      return;
+    }
+
     // postback: 1問1答ステートマシン処理
     const payload = decodePostbackData(event.data);
     if (!payload) {
