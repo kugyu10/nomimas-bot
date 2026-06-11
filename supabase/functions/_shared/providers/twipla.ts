@@ -114,8 +114,10 @@ export const twiplaProvider: ParticipantListProvider = {
 
   async fetchParticipants(url: string): Promise<ScrapeResult> {
     // リダイレクト追跡を無効化（SSRF対策: リダイレクト先の制御を防ぐ）
+    // タイムアウト10秒: twipla.jpの応答保留でEdge Functionが滞留するのを防ぐ（WR-04）
     const response = await fetch(url, {
       redirect: "error",
+      signal: AbortSignal.timeout(10_000),
     });
 
     if (!response.ok) {
