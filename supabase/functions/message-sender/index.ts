@@ -21,6 +21,18 @@ Deno.serve(async (req) => {
   const channelId = Deno.env.get("LINE_CHANNEL_ID") ?? "";
   const channelSecret = Deno.env.get("LINE_CHANNEL_SECRET") ?? "";
 
+  // env未設定は設定エラー(500)として早期検知し、LINE側障害(502)と区別する（IN-03）
+  if (!channelId || !channelSecret) {
+    console.error("message-sender: missing LINE env (LINE_CHANNEL_ID / LINE_CHANNEL_SECRET)");
+    return new Response(
+      JSON.stringify({ status: "error" }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+  }
+
   try {
     // ステートレストークン発行（v3・有効15分・都度発行）
     // トークン値を応答・ログに含めないこと（セキュリティ要件）
