@@ -33,7 +33,7 @@
 Plans:
 **Wave 1**
 
-- [ ] 01-01-PLAN.md — モノリポ初期化＋DBスキーマ（7テーブル+RLS）＋dev適用 [Wave 1]
+- [x] 01-01-PLAN.md — モノリポ初期化＋DBスキーマ（7テーブル+RLS）＋dev適用 [Wave 1]
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -92,7 +92,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. 基盤構築 + スクレイピング検証 | 0/3 | Not started | - |
+| 1. 基盤構築 + スクレイピング検証 | 1/3 | In Progress|  |
 | 2. LINE Botコア機能 | 0/? | Not started | - |
 | 3. 管理画面 | 0/? | Not started | - |
 | 4. 通知 + 統合仕上げ | 0/? | Not started | - |
