@@ -195,13 +195,14 @@ async function handleEvent(
     // follow: line_users へ upsert
     // (oa_config_id, line_user_id) の一意制約でupsert（IN-06修正済み）
     // replyしない（挨拶はLINE OA Manager側の領分 — D-07）
+    // CR-02: display_name はペイロードに含めない — 含めると再フォロー時に
+    // ON CONFLICT DO UPDATE で既存の display_name が null 上書きされデータ消失する
     const { error } = await supabase
       .from("line_users")
       .upsert(
         {
           oa_config_id: oaConfig.id,
           line_user_id: event.userId,
-          display_name: null,
           followed_at: new Date().toISOString(),
         },
         { onConflict: "oa_config_id,line_user_id" },

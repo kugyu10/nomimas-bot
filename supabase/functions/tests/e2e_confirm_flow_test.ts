@@ -416,3 +416,50 @@ Deno.test({
     }
   },
 });
+
+Deno.test({
+  name: "e2e: 再フォローで display_name が保持される（CR-02）",
+  ignore: !IS_E2E,
+  async fn() {
+    const sql = connectDev();
+    const projectRef = getRequiredEnv("DEV_PROJECT_REF");
+    const channelSecret = getRequiredEnv("LINE_CHANNEL_SECRET");
+    const webhookUrl = `https://${projectRef}.supabase.co/functions/v1/webhook`;
+    const SEED_LINE_USER_UUID = "00000000-0000-0000-0000-000000000004";
+
+    try {
+      // 事前: seed line_user に display_name が設定されている状態を保証
+      await sql`
+        UPDATE public.line_users
+        SET display_name = 'dev-tester'
+        WHERE id = ${SEED_LINE_USER_UUID}
+      `;
+
+      // followイベント（ブロック解除＝再フォロー相当）を署名付き送信
+      const followEvent = {
+        type: "follow",
+        replyToken: "dummy-follow-" + crypto.randomUUID(),
+        source: { type: "user", userId: SEED_LINE_USER_ID_STR },
+        follow: { isUnblocked: true },
+      };
+      const resp = await sendSignedEvent(webhookUrl, channelSecret, [followEvent]);
+      assertEquals(resp.status, 200, "follow イベント → 200");
+      await resp.body?.cancel();
+
+      // CR-02: display_name が null 上書きされていないこと
+      const rows = await sql<{ display_name: string | null; followed_at: string | null }[]>`
+        SELECT display_name, followed_at
+        FROM public.line_users
+        WHERE id = ${SEED_LINE_USER_UUID}
+      `;
+      assertEquals(
+        rows[0]?.display_name,
+        "dev-tester",
+        "再フォロー後も display_name が保持されること（CR-02）",
+      );
+      assertExists(rows[0]?.followed_at, "followed_at が更新されていること");
+    } finally {
+      await sql.end();
+    }
+  },
+});
