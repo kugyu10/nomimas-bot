@@ -20,6 +20,10 @@ export async function validateLineSignature(
   channelSecret: string,
   signature: string,
 ): Promise<boolean> {
+  // 空シークレット: crypto.subtle.importKey が DataError を投げるため
+  // 契約（例外を投げない）どおり先にガードして false を返す
+  if (!channelSecret) return false;
+
   // 空署名・空body: 長さ0のmacとの比較で安全にfalseを返す
   const key = await crypto.subtle.importKey(
     "raw",

@@ -59,3 +59,12 @@ Deno.test(
     assertEquals(result, false);
   },
 );
+
+Deno.test(
+  "validateLineSignature: 空チャネルシークレットで例外を出さず false（WR-01）",
+  async () => {
+    // crypto.subtle.importKey は空キーで DataError を投げるため、ガードで false を返すこと
+    const result = await validateLineSignature(TEST_BODY, "", TEST_SIG);
+    assertEquals(result, false);
+  },
+);

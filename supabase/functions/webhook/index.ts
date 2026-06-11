@@ -30,8 +30,13 @@ Deno.serve(async (req) => {
   const rawBody = await req.text();
 
   // (2) x-line-signature検証（不正なら401 — ビジネスロジックは一切実行しない）
-  const sig = req.headers.get("x-line-signature") ?? "";
+  // env未設定は設定エラーとして500を返し、署名不正(401)と区別する（WR-01）
   const channelSecret = Deno.env.get("LINE_CHANNEL_SECRET") ?? "";
+  if (!channelSecret) {
+    console.error("webhook: LINE_CHANNEL_SECRET is not set");
+    return new Response("server configuration error", { status: 500 });
+  }
+  const sig = req.headers.get("x-line-signature") ?? "";
   const isValid = await validateLineSignature(rawBody, channelSecret, sig);
   if (!isValid) {
     return new Response("invalid signature", { status: 401 });
