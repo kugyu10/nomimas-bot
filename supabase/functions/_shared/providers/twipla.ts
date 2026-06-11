@@ -50,7 +50,12 @@ export function parseTwiplaHtml(html: string, sourceUrl: string): ScrapeResult {
     // セクション配下の a.card.namelist からのみ参加者を抽出（スコープ固定）
     // deno-lint-ignore no-explicit-any
     $(section).find("a.card.namelist").each((_: number, el: any) => {
-      const displayName = $(el).attr("n") ?? $(el).text().trim();
+      // `||` で空文字のn属性もテキストへフォールバックさせる（?? は空文字を素通しする — WR-06）
+      const displayName = ($(el).attr("n") || $(el).text().trim()) || "";
+      if (!displayName) {
+        // 名前が取れないエントリはスキップ（空display_name行をDBに作らない）
+        return;
+      }
       const screenName = $(el).attr("s") ?? null;
       const profileUrl = $(el).attr("href") ?? null;
 
