@@ -6,8 +6,9 @@ import { assertEquals, assertGreater, assertExists } from "jsr:@std/assert";
 import type { ScrapedParticipant } from "../_shared/providers/types.ts";
 import { parseTwiplaHtml } from "../_shared/providers/twipla.ts";
 
-// フィクスチャHTMLの読み込み（テスト実行ディレクトリからの相対パス）
-const FIXTURE_PATH = new URL("./fixtures/twipla_event.html", import.meta.url).pathname;
+// フィクスチャHTMLの読み込み
+// URLオブジェクトを直接渡す（.pathnameはパスに空白・非ASCIIがあると%エンコードで壊れる — IN-07）
+const FIXTURE_PATH = new URL("./fixtures/twipla_event.html", import.meta.url);
 
 Deno.test("parseTwiplaHtml: 参加者のみが attending として抽出され興味あり・不参加が混入しない", () => {
   const html = Deno.readTextFileSync(FIXTURE_PATH);
