@@ -10,7 +10,11 @@ import { createClient } from "@supabase/supabase-js";
  * クライアントサイドには絶対に露出させない
  */
 export function createServiceClient() {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  // Edge Functionsでは自動注入されるが、ローカル実行等での欠落を明示エラーにする（IN-04）
+  if (!supabaseUrl || !supabaseServiceRoleKey) {
+    throw new Error("SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set");
+  }
   return createClient(supabaseUrl, supabaseServiceRoleKey);
 }
