@@ -64,11 +64,20 @@ Deno.serve(async (req: Request) => {
   const supabase = createServiceClient();
   let saved = false;
 
-  const { data: epu } = await supabase
+  // maybeSingle: 0行は data:null で返り error にならない（DB障害と「URL未登録」を区別する — WR-03）
+  const { data: epu, error: epuError } = await supabase
     .from("event_platform_urls")
     .select("id")
     .eq("url", body.url)
-    .single();
+    .maybeSingle();
+
+  if (epuError) {
+    console.error(`[scraper] epu lookup error: ${epuError.message}`);
+    return new Response(JSON.stringify({ error: "db error" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 
   if (epu) {
     // 参加者の同一性キー（CR-01対応）:
@@ -98,12 +107,16 @@ Deno.serve(async (req: Request) => {
       .upsert(rows, { onConflict: "event_platform_url_id,natural_key" });
 
     if (upsertError) {
+      // upsert失敗は500で返し、呼び出し側（将来のcron/管理画面）がリトライ判断できるようにする（WR-03）
       console.error(`[scraper] upsert error: ${upsertError.message}`);
-    } else {
-      saved = true;
-      // 件数のみログ（参加者生データをログに残さない — T-01-08）
-      console.log(`[scraper] upserted ${rows.length} participants for url=${body.url}`);
+      return new Response(JSON.stringify({ error: "db error" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
     }
+    saved = true;
+    // 件数のみログ（参加者生データをログに残さない — T-01-08）
+    console.log(`[scraper] upserted ${rows.length} participants for url=${body.url}`);
   } else {
     console.log(`[scraper] url not registered in event_platform_urls: ${body.url}`);
   }
