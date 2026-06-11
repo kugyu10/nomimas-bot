@@ -10,9 +10,16 @@ export interface PostbackPayload {
   optionIndex: number;
 }
 
-// zod スキーマ: UUID / 非空文字列 / 0以上の整数
+// UUID-like パターン（8-4-4-4-12 の16進数形式）
+// zod 4 の z.string().uuid() はRFC 4122の版・変形ビットを厳格に検証するため、
+// seed/テストUUIDを含む開発環境の00000000-0000-0000-0000-xxxxxxxxxx系を拒否する。
+// postback dataのparticipant_idはDB外部で発行されるため、DB側のFK制約（uuid型）に
+// 任せてアプリ層では形式チェックのみ行う（スポーフィング防止はuserId照合が本体）。
+const UUID_PATTERN = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+// zod スキーマ: UUID形式 / 非空文字列 / 0以上の整数
 const PostbackPayloadSchema = z.object({
-  p: z.string().uuid(),
+  p: z.string().regex(UUID_PATTERN),
   q: z.string().min(1),
   a: z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().min(0)),
 });
