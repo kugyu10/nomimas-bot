@@ -16,9 +16,11 @@
 3. プロバイダーを選択（なければ新規作成。例: `nomimas`）
 4. プライバシーポリシー・利用規約URLは空欄でOK → **OK** で有効化
 5. [LINE Developers コンソール](https://developers.line.biz/console/) を開き、該当プロバイダー配下にチャネルが出来ていることを確認
-6. **チャネル基本設定** タブ → 一番下の **チャネルシークレット** をコピー
-7. **Messaging API設定** タブ → 一番下の **チャネルアクセストークン（長期）** → **発行** をクリックしてコピー
-8. 同じ **Messaging API設定** タブで以下を設定:
+6. **チャネル基本設定** タブ → **チャネルID** と **チャネルシークレット** をコピー
+7. アクセストークンの発行は不要。OAM経由で作成したチャネルには長期トークンの発行UIがなく、
+   実行時に **ステートレスチャネルアクセストークン（v3・有効15分）** をAPIで都度発行する設計とする:
+   `POST https://api.line.me/oauth2/v3/token`（client_id=チャネルID, client_secret=チャネルシークレット）
+8. **Messaging API設定** タブで以下を設定:
    - **応答メッセージ**: オフ（LINE公式アカウント機能の項目。「編集」から応答設定画面へ飛んで無効化）
    - **Webhook**: いったんそのまま（URL は Edge Function デプロイ後に自動実装側で案内）
 
@@ -27,8 +29,8 @@
 `env.dev` の以下を埋める:
 
 ```
+LINE_CHANNEL_ID=（手順6の値）
 LINE_CHANNEL_SECRET=（手順6の値）
-LINE_CHANNEL_ACCESS_TOKEN=（手順7の値）
 ```
 
 > 💡 開発用と本番用で OA を分ける場合は、本番 OA 側も同様に作成して `env.prod` に記入（後日でOK）。
@@ -83,6 +85,6 @@ X_OAUTH_CLIENT_SECRET=（Client Secret）
 - [x] Supabase CLI ログイン
 - [x] GitHub リポジトリ `kugyu10/nomimas-bot`（⚠️ **public** — 秘密情報は env ファイルのみに置くこと）
 - [x] Deno / Vercel CLI インストール
-- [ ] LINE チャネルシークレット & アクセストークン → `env.dev`
+- [x] LINE チャネルID & シークレット → `env.dev` / `env.prod`（記入済み・ステートレストークン発行テスト成功）
 - [ ] X OAuth Client ID/Secret → `env.dev`（Phase 3 までに）
 - [ ] Twipla サンプルURL の共有（任意）

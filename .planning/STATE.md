@@ -53,7 +53,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- LINEチャネルアクセストークンが未発行（dev/prodのチャネルID・シークレットはenvファイルに格納済み）— 実機配信テストはトークン発行後。それまではモック/署名検証テストで代替
+- （解消済み 2026-06-12）LINEのチャネルアクセストークンは静的発行せず、実行時にステートレストークン(v3・有効15分)を channel_id+channel_secret から都度発行する（POST https://api.line.me/oauth2/v3/token）。dev/prod両チャネルとも発行テスト成功済み。実機配信テストは夜間から可能
 - X OAuthアプリ未作成 — Phase 3の認証はプロバイダー設定を後から差し込める構造で実装（テストプロバイダー/モックでフロー検証）
 - リポジトリはpublic — env.dev / env.prod のgitignore徹底（Phase 1成功条件5）
 
