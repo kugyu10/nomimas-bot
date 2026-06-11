@@ -32,7 +32,8 @@ values (
   now() + interval '3 days',
   '渋谷駅ハチ公前',
   '3000円',
-  '渋谷の居酒屋（dev-venue）'
+  '渋谷の居酒屋（dev-venue）',
+  7
 )
 on conflict (id) do nothing;
 
