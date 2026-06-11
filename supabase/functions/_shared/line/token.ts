@@ -39,5 +39,11 @@ export async function issueStatelessToken(
   }
 
   const json = await res.json();
-  return json.access_token as string; // expires_in: 900
+  // レスポンス形状を検証（WR-08）— 200でもaccess_tokenが欠落/空なら明示的に失敗させる
+  // （型キャストだけだと undefined が string として返り "Bearer undefined" になる）
+  if (typeof json.access_token !== "string" || json.access_token === "") {
+    // ボディはログしない方針を維持（シークレット混入防止）
+    throw new Error("token issue failed: malformed response");
+  }
+  return json.access_token; // expires_in: 900
 }
