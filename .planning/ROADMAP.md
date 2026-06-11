@@ -25,7 +25,12 @@
   3. LINE WebhookのEdge Functionが署名検証をパスしてメッセージを受信できる（正しい署名は200・不正な署名は拒否されることがテストで検証できる）
   4. Edge Functions 3本（webhook / scraper / message-sender）がdev Supabaseプロジェクトにデプロイされ、呼び出しログが確認できる
   5. リポジトリ初期化時に `.gitignore` が env.dev / env.prod を除外しており、シークレットがコミット対象に含まれない（リポジトリはpublic）
-**Plans**: 3 plans（モノリポ初期化＋DBスキーマ / 共有モジュール＋scraper / webhook＋message-sender雛形）
+**Plans**: 3 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — モノリポ初期化＋DBスキーマ（7テーブル+RLS）＋dev適用 [Wave 1]
+- [ ] 01-02-PLAN.md — プロバイダー抽象化＋Twiplaスクレイパー＋scraper関数デプロイ [Wave 2]
+- [ ] 01-03-PLAN.md — LINE webhook（署名検証）＋message-sender雛形＋デプロイ検証 [Wave 2]
 
 ### Phase 2: LINE Botコア機能
 **Goal**: イベントN日前の自動配信から1問1答の回答収集・保存まで、参加者側のフローが手作業ゼロで完結する
