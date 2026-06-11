@@ -71,7 +71,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- **[BLOCKER 2026-06-12 未明] Claude組織の月間支出上限に到達** — Phase 2 Wave 1実行中に全サブエージェントが停止（"You've hit your org's monthly spend limit"）。上限引き上げ（claude.ai/admin-settings/usage）後に `/gsd:resume-work` または `/gsd:autonomous --from 2` で再開。
+- **（解消 2026-06-12 未明）Claude組織の月間支出上限に一時到達** — プローブで回復を確認し、Wave 1の続きから自動再開 — Phase 2 Wave 1実行中に全サブエージェントが停止（"You've hit your org's monthly spend limit"）。上限引き上げ（claude.ai/admin-settings/usage）後に `/gsd:resume-work` または `/gsd:autonomous --from 2` で再開。
   - Phase 1は完全完了・push済み（verification passed 5/5）
   - Phase 2は計画完了（4プラン・チェッカーPASS）。実行は部分進行で停止:
     - 02-01: Task 1のみコミット済み（スキーマin-place拡張+seed — `10902ef`）。Task 2（Vault cron マイグレーション+scripts）・Task 3（[BLOCKING] db reset --linked 再適用）は未実施 — **ディスク上のマイグレーションがdev DBより先行している**状態。再開時は02-01のTask 2から（SUMMARYなしのため safe-resume gate が発火する想定）

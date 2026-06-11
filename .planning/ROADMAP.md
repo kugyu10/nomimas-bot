@@ -57,8 +57,8 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 02-01-PLAN.md — スキーマ拡張（questions/状態列/IN-06/default 7）＋cron基盤（Vault参照）＋[BLOCKING] dev再適用 [Wave 1]
-- [ ] 02-02-PLAN.md — 1問1答ステートマシン・postbackコーデック・メッセージビルダー（純関数, TDD） [Wave 1]
+- [x] 02-01-PLAN.md — スキーマ拡張（questions/状態列/IN-06/default 7）＋cron基盤（Vault参照）＋[BLOCKING] dev再適用 [Wave 1]
+- [x] 02-02-PLAN.md — 1問1答ステートマシン・postbackコーデック・メッセージビルダー（純関数, TDD） [Wave 1]
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -107,7 +107,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. 基盤構築 + スクレイピング検証 | 3/3 | Complete   | 2026-06-11 |
-| 2. LINE Botコア機能 | 0/4 | Planned | - |
+| 2. LINE Botコア機能 | 2/4 | In Progress|  |
 | 3. 管理画面 | 0/? | Not started | - |
 | 4. 通知 + 統合仕上げ | 0/? | Not started | - |
 
