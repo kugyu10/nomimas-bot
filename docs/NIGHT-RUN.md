@@ -32,6 +32,10 @@ caffeinate -dims claude --dangerously-skip-permissions
 /gsd:autonomous Twiplaのサンプルイベント: https://twipla.jp/events/731057
 実DBはdev環境(cmsxvxtcdniqgvhxjqri)のみ使用。prodには一切触れないこと。
 フェーズ完了ごとにgit commit & push。
+無人実行なので私への質問(AskUserQuestion)で止まらないこと。
+ブロッカー/検証失敗は1回リトライ→ダメなら「スキップ」を自分で選び、
+内容をSTATE.mdのBlockersに記録して次のフェーズへ進むこと。
+グレーゾーンの設計判断はすべて自己判断で進めてよい。
 ```
 
 > `--dangerously-skip-permissions` は全ツール実行を無確認で許可します。
@@ -62,4 +66,4 @@ ls .planning/phases/*/VERIFICATION.md 2>/dev/null   # フェーズ検証結果
 
 ## メモ欄
 
-- Twipla サンプルURL:
+- Twipla サンプルURL:https://twipla.jp/events/731057
