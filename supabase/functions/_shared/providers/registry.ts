@@ -13,16 +13,12 @@ const providers: ParticipantListProvider[] = [twiplaProvider];
  * 対応するプロバイダーがなければ null（= 非許可URLの拒否）
  */
 export function resolveProvider(url: string): ParticipantListProvider | null {
-  let parsed: URL;
+  // 入力検証: URLとしてパースできない文字列は早期拒否（各providerのcanHandleも自前で再パースする）
   try {
-    parsed = new URL(url);
+    new URL(url);
   } catch {
-    // URLパース失敗 = 不正なURL
     return null;
   }
-
-  // 解析成功でも canHandle で絞る
-  void parsed; // parsed is used implicitly by providers' canHandle
 
   for (const provider of providers) {
     if (provider.canHandle(url)) {
