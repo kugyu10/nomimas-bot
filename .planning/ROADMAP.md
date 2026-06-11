@@ -8,7 +8,7 @@
 
 ## Phases
 
-- [ ] **Phase 1: 基盤構築 + スクレイピング検証** - DBスキーマ・Edge Functions土台・Twiplaスクレイピングの実証
+- [x] **Phase 1: 基盤構築 + スクレイピング検証** - DBスキーマ・Edge Functions土台・Twiplaスクレイピングの実証 (completed 2026-06-11)
 - [ ] **Phase 2: LINE Botコア機能** - pg_cron自動配信・1問1答ステートマシン・回答保存のE2E完成
 - [ ] **Phase 3: 管理画面** - X OAuth認証・イベント管理・回答状況一覧・手動紐付け・OA設定UI
 - [ ] **Phase 4: 通知 + 統合仕上げ** - 2日前以降の更新通知・質問テンプレート・root権限・E2E通し検証
@@ -37,8 +37,8 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 01-02-PLAN.md — プロバイダー抽象化＋Twiplaスクレイパー＋scraper関数デプロイ [Wave 2]
-- [ ] 01-03-PLAN.md — LINE webhook（署名検証）＋message-sender雛形＋デプロイ検証 [Wave 2]
+- [x] 01-02-PLAN.md — プロバイダー抽象化＋Twiplaスクレイパー＋scraper関数デプロイ [Wave 2]
+- [x] 01-03-PLAN.md — LINE webhook（署名検証）＋message-sender雛形＋デプロイ検証 [Wave 2]
 
 ### Phase 2: LINE Botコア機能
 
@@ -92,7 +92,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. 基盤構築 + スクレイピング検証 | 1/3 | In Progress|  |
+| 1. 基盤構築 + スクレイピング検証 | 3/3 | Complete   | 2026-06-11 |
 | 2. LINE Botコア機能 | 0/? | Not started | - |
 | 3. 管理画面 | 0/? | Not started | - |
 | 4. 通知 + 統合仕上げ | 0/? | Not started | - |
