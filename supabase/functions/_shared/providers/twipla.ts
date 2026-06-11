@@ -5,7 +5,6 @@
 // 落とし穴: $("a.card.namelist") をページ全体に適用すると「興味あり」「不参加」も全件ヒットする
 // 必ず div.member_list セクション単位でスコープし先頭テキストでステータス判別すること（RESEARCH.md Pitfall 1）
 
-// deno-lint-ignore-file
 import * as cheerio from "cheerio";
 import type {
   ParticipantListProvider,
