@@ -1,0 +1,29 @@
+# Secrets — NEVER commit (this repo is public)
+env.dev
+env.prod
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+.vercel/
+
+# Supabase local
+supabase/.temp/
+supabase/.branches/
+
+# OS / editor
+.DS_Store
+*.log
+
+# Claude Code local settings
+.claude/settings.local.json
