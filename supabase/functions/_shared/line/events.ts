@@ -22,14 +22,16 @@ const FollowEventSchema = z.object({
   follow: z.object({ isUnblocked: z.boolean() }).optional(),
 });
 
+// WR-04: message.type を text に限定しない — スタンプ・画像等の非テキストメッセージも
+// kind:"message" として再誘導（D-07 reprompt）経路に乗せる。text は text型のみ持つ
 const MessageEventSchema = z.object({
   type: z.literal("message"),
   replyToken: z.string(),
   source: z.object({ type: z.string(), userId: z.string() }),
   message: z.object({
-    type: z.literal("text"),
+    type: z.string(),
     id: z.string().optional(),
-    text: z.string(),
+    text: z.string().optional(),
   }),
 });
 
@@ -51,7 +53,8 @@ export type ParsedEvent =
     kind: "message";
     replyToken: string;
     userId: string;
-    text: string;
+    /** テキストメッセージの本文。スタンプ・画像等の非テキストは null（WR-04） */
+    text: string | null;
   };
 
 /**
@@ -104,7 +107,7 @@ export function parseWebhookEvent(raw: unknown): ParsedEvent | null {
       kind: "message",
       replyToken: d.replyToken,
       userId: d.source.userId,
-      text: d.message.text,
+      text: d.message.text ?? null,
     };
   }
 

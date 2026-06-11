@@ -115,6 +115,49 @@ Deno.test("parseWebhookEvent: textメッセージイベント → kind:message �
   }
 });
 
+Deno.test("parseWebhookEvent: スタンプ(sticker)メッセージ → kind:message / text=null（WR-04: 非テキストも再誘導経路へ）", () => {
+  const stickerEvent = {
+    type: "message",
+    replyToken: "reply-token-sticker",
+    source: { type: "user", userId: "Usticker789" },
+    message: {
+      type: "sticker",
+      id: "msg-sticker-001",
+      packageId: "446",
+      stickerId: "1988",
+    },
+  };
+  const result = parseWebhookEvent(stickerEvent);
+
+  assertExists(result, "スタンプメッセージが破棄されないこと");
+  assertEquals(result.kind, "message");
+  if (result.kind === "message") {
+    assertEquals(result.replyToken, "reply-token-sticker");
+    assertEquals(result.userId, "Usticker789");
+    assertEquals(result.text, null, "非テキストは text=null");
+  }
+});
+
+Deno.test("parseWebhookEvent: 画像(image)メッセージ → kind:message / text=null（WR-04）", () => {
+  const imageEvent = {
+    type: "message",
+    replyToken: "reply-token-image",
+    source: { type: "user", userId: "Uimage789" },
+    message: {
+      type: "image",
+      id: "msg-image-001",
+      contentProvider: { type: "line" },
+    },
+  };
+  const result = parseWebhookEvent(imageEvent);
+
+  assertExists(result, "画像メッセージが破棄されないこと");
+  assertEquals(result.kind, "message");
+  if (result.kind === "message") {
+    assertEquals(result.text, null, "非テキストは text=null");
+  }
+});
+
 Deno.test("parseWebhookEvent: source.userId 欠損 → null を返す（throwしない）", () => {
   const eventWithoutUserId = {
     type: "postback",

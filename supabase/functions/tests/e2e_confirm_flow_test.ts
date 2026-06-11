@@ -136,6 +136,19 @@ function makeMessageEvent(userId: string, text: string): object {
   };
 }
 
+/**
+ * message (sticker) イベントオブジェクトを生成する（WR-04検証用）
+ */
+function makeStickerEvent(userId: string): object {
+  return {
+    type: "message",
+    replyToken: "dummy-reply-token-" + crypto.randomUUID(),
+    source: { type: "user", userId },
+    message: { type: "sticker", id: crypto.randomUUID(), packageId: "446", stickerId: "1988" },
+    deliveryContext: { isRedelivery: false },
+  };
+}
+
 Deno.test({
   name: "e2e: フルE2E confirm flow — sender→postback×3→answers 3行+completed+なりすまし拒否",
   ignore: !IS_E2E,
@@ -331,6 +344,23 @@ Deno.test({
         SELECT current_question_index FROM public.participants WHERE id = ${SEED_PARTICIPANT_ID}
       `;
       assertEquals(afterMsgState[0]?.current_question_index, 1, "(f) テキスト後 current_question_index が変化していないこと");
+
+      // === (f2) スタンプメッセージ: 200 で受理され状態/answers 不変（WR-04: 破棄されず再誘導経路に乗る） ===
+      const stickerResp = await sendSignedEvent(webhookUrl, channelSecret, [
+        makeStickerEvent(SEED_LINE_USER_ID_STR),
+      ]);
+      assertEquals(stickerResp.status, 200, "(f2) スタンプ message → 200");
+      await stickerResp.body?.cancel();
+
+      const afterStickerAnswers = await sql<{ count: string }[]>`
+        SELECT COUNT(*) as count FROM public.answers WHERE participant_id = ${SEED_PARTICIPANT_ID}
+      `;
+      assertEquals(Number(afterStickerAnswers[0]?.count), 1, "(f2) スタンプ後 answers 行数が変化していないこと");
+
+      const afterStickerState = await sql<{ current_question_index: number }[]>`
+        SELECT current_question_index FROM public.participants WHERE id = ${SEED_PARTICIPANT_ID}
+      `;
+      assertEquals(afterStickerState[0]?.current_question_index, 1, "(f2) スタンプ後 current_question_index が変化していないこと");
 
       // === (g) postback Q2(q_drink) → index2, postback Q3(q_late) → completed ===
       // Q2
