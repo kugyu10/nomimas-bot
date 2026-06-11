@@ -100,3 +100,29 @@ create table public.answers (
   created_at timestamptz not null default now(),
   unique(participant_id, question_key)
 );
+
+-- updated_at 自動更新トリガー（WR-05対応）
+-- UPDATE時に updated_at を now() に更新する。upsert（ON CONFLICT DO UPDATE）でも発火するため
+-- scraper の再スクレイプで updated_at が正しく動く
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end
+$$;
+
+create trigger oa_configs_set_updated_at
+  before update on public.oa_configs
+  for each row execute function public.set_updated_at();
+
+create trigger events_set_updated_at
+  before update on public.events
+  for each row execute function public.set_updated_at();
+
+create trigger participants_set_updated_at
+  before update on public.participants
+  for each row execute function public.set_updated_at();
