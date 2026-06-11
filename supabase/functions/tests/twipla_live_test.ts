@@ -1,12 +1,27 @@
 // Twipla実URL統合テスト
 // 実際のTwipla URLへのfetchを行い、参加者リストが取得できることを確認する
-// 実行: deno test --config supabase/functions/deno.json --allow-net=twipla.jp supabase/functions/tests/twipla_live_test.ts
+//
+// デフォルトでは ignore される（WR-07対応 — 実ネットワーク依存のフレーキー化を防ぐ）。
+// 実行するには環境変数 LIVE_TEST=1 を明示する（オプトイン）:
+//   LIVE_TEST=1 deno test --config supabase/functions/deno.json --allow-env --allow-net=twipla.jp supabase/functions/tests/twipla_live_test.ts
 
 import { assertEquals, assertGreater, assertExists } from "jsr:@std/assert";
 import type { ScrapedParticipant } from "../_shared/providers/types.ts";
 import { twiplaProvider } from "../_shared/providers/twipla.ts";
 
-Deno.test("live: twipla event 731057", async () => {
+// --allow-env なしで実行された場合も例外にせず ignore 扱いにする
+function liveTestEnabled(): boolean {
+  try {
+    return Deno.env.get("LIVE_TEST") === "1";
+  } catch {
+    return false;
+  }
+}
+
+Deno.test({
+  name: "live: twipla event 731057",
+  ignore: !liveTestEnabled(),
+  fn: async () => {
   const url = "https://twipla.jp/events/731057";
   const result = await twiplaProvider.fetchParticipants(url);
 
@@ -33,5 +48,6 @@ Deno.test("live: twipla event 731057", async () => {
   const attending = (result.participants as ScrapedParticipant[]).filter((p) => p.status === "attending");
   assertGreater(attending.length, 0, "attending participants > 0");
 
-  console.log(`[live test] platform=${result.platform}, total=${result.participants.length}, attending=${attending.length}, capacity=${result.capacity}`);
+    console.log(`[live test] platform=${result.platform}, total=${result.participants.length}, attending=${attending.length}, capacity=${result.capacity}`);
+  },
 });
