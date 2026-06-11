@@ -27,6 +27,7 @@ import { issueStatelessToken } from "../_shared/line/token.ts";
 import { pushMessage } from "../_shared/line/client.ts";
 import { buildInitialMessages } from "../_shared/confirm/messages.ts";
 import type { EventInfo } from "../_shared/confirm/messages.ts";
+import { formatEventDate, formatMeetingAt } from "../_shared/confirm/format.ts";
 
 // --- Zod スキーマ ---
 
@@ -185,10 +186,11 @@ Deno.serve(async (req) => {
     }
 
     // EventInfo 構築（RPC が返す snake_case → camelCase 変換）
+    // CR-01: meeting_at は UTC ISO で返るため Asia/Tokyo に整形してから渡す
     const eventInfo: EventInfo = {
       title: target.event_title,
-      eventDate: target.event_date,
-      meetingAt: target.meeting_at,
+      eventDate: formatEventDate(target.event_date),
+      meetingAt: formatMeetingAt(target.meeting_at),
       meetingPlace: target.meeting_place,
       fee: target.fee,
       venueInfo: target.venue_info,
