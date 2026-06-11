@@ -463,15 +463,13 @@ RLS方針（Phase 1は「存在」が要件、実運用テストはPhase 3）:
 | A3 | Twiplaの大規模イベント（100人超等）でのページング有無 | Open Questions | 低 — 想定規模10〜30人はサンプルと同様1ページ表示。printlistページ（/events/printlist/<id>）が代替手段として存在 |
 | A4 | Management APIによるログ取得エンドポイント（logs.all） | 成功条件4検証 | 低 — 採用しない。functions list + 実呼び出しで機械検証する方針のため影響なし |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Twiplaのレート制限・アクセスポリシー**
+1. **Twiplaのレート制限・アクセスポリシー** — RESOLVED: scraperは手動/低頻度トリガー前提（月数回・1イベント数回）。1リクエスト/イベント/実行で十分。リトライは指数バックオフ1回まで（Plan 01-02 critical_constraintsに採用済み）
    - What we know: UAなしcurlで200。robots/利用規約の機械可読な制限は未調査
    - What's unclear: 高頻度アクセス時の挙動
-   - Recommendation: scraperは手動/低頻度トリガー前提（月数回・1イベント数回）。1リクエスト/イベント/実行で十分。リトライは指数バックオフ1回まで
-2. **LINE Developersコンソール側のWebhook URL設定**
+2. **LINE Developersコンソール側のWebhook URL設定** — RESOLVED: Phase 1成功条件3は署名付きcurlで機械検証可能なので、コンソール設定は人間向けTODOとしてSUMMARYに残す（夜間ブロッカーにしない。Plan 01-03 Task 3に反映済み）
    - What we know: デプロイ後 `https://cmsxvxtcdniqgvhxjqri.supabase.co/functions/v1/webhook` を設定する必要がある（手動）
-   - Recommendation: Phase 1成功条件3は署名付きcurlで機械検証可能なので、コンソール設定は人間向けTODOとしてSUMMARYに残す（夜間ブロッカーにしない）
 
 ## Environment Availability
 
