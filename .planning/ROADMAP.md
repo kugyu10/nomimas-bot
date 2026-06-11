@@ -62,7 +62,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 02-03-PLAN.md — LINE送信クライアント（DRY_RUN）＋message-sender配信本体＋抽出E2E [Wave 2]
+- [x] 02-03-PLAN.md — LINE送信クライアント（DRY_RUN）＋message-sender配信本体＋抽出E2E [Wave 2]
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -107,7 +107,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. 基盤構築 + スクレイピング検証 | 3/3 | Complete   | 2026-06-11 |
-| 2. LINE Botコア機能 | 2/4 | In Progress|  |
+| 2. LINE Botコア機能 | 3/4 | In Progress|  |
 | 3. 管理画面 | 0/? | Not started | - |
 | 4. 通知 + 統合仕上げ | 0/? | Not started | - |
 
