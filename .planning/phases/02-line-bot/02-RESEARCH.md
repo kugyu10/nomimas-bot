@@ -519,16 +519,16 @@ select status_code, content::text, timed_out from net._http_response order by id
 | A5 | 同一ユーザーへの複数pushリクエストは各回カウントされる（pricingの「送信対象人数」解釈） | Pattern 3 | 低 — どちらにせよ1リクエスト同梱が最適で設計は変わらない |
 | A6 | pg_cronのスケジュールタイムゾーンはUTC（Supabaseサーバーtimezone=UTC） | Pattern 1 | 低 — '0 1 * * *'が想定とずれてもJST午前中の実行であれば機能要件は満たす。verify-cronで初回実行時刻を確認 |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **同一LINEユーザーが複数イベントで同時にin_progressの場合の想定外入力への再誘導**
+1. **同一LINEユーザーが複数イベントで同時にin_progressの場合の想定外入力への再誘導** — RESOLVED: updated_at最新のin_progress participant 1件のみ再送（02-04 Task 1で採用）
    - What we know: postback dataにparticipant_idがあるので回答は厳密に紐づく（Locked設計）。曖昧なのは「テキスト等の想定外入力」時にどのparticipantの質問を再送するか
    - What's unclear: 複数in_progress時の再送対象
    - Recommendation: `updated_at` が最新のin_progress participant 1件のみ再送（シンプル・実害最小）。planner判断で可
-2. **events.event_date が null のイベント**
+2. **events.event_date が null のイベント** — RESOLVED: 抽出SQLで `event_date is not null` によりスキップ（02-01で採用。必須化はPhase 3）
    - What we know: 現スキーマでnullable。抽出SQLは `event_date is not null` でスキップする
    - Recommendation: Phase 2はスキップ+ログで十分。必須化はPhase 3のイベント作成UIで
-3. **message-senderの応答方式（同期完了 vs waitUntil+202）**
+3. **message-senderの応答方式（同期完了 vs waitUntil+202）** — RESOLVED: 同期 + pg_net timeout 30000ms（02-03で採用、E2Eで timed_out=false 確認）
    - What we know: 想定規模（10〜30人）なら同期でも数秒。pg_net timeoutは引数で延長可能
    - Recommendation: まず同期+timeout 30000msで実装し、E2Eでpg_net側のtimed_out=falseを確認。問題があればwaitUntilへ
 
