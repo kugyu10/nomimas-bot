@@ -66,13 +66,18 @@ create table public.line_users (
 -- イベント参加者テーブル（スクレイピング結果の保持）
 -- EVENT-02: Twiplaスクレイピング結果をupsert
 -- ADMIN-02: LINEユーザーとの手動紐付け（Phase 3）のため line_user_id はnullable
--- unique制約(event_platform_url_id, display_name) がPlan 02のscraper upsertのonConflictターゲット
+-- natural_key: 参加者の同一性キー（CR-01対応）
+--   display_name はユーザーが自由に変更でき一意性がないため、scraper が
+--   coalesce(screen_name, 'dn:' || display_name) 相当の値を計算して格納する
+--   （'dn:' プレフィックスで screen_name 値と display_name フォールバック値の衝突を防ぐ）
+-- unique制約(event_platform_url_id, natural_key) がscraper upsertのonConflictターゲット
 create table public.participants (
   id uuid primary key default gen_random_uuid(),
   event_platform_url_id uuid not null references public.event_platform_urls(id) on delete cascade,
   display_name text not null,
   screen_name text,
   profile_url text,
+  natural_key text not null,
   status text not null check (status in ('attending', 'interested', 'declined', 'unknown')),
   source_platform text not null default 'twipla',
   line_user_id uuid references public.line_users(id) on delete set null,
@@ -80,7 +85,7 @@ create table public.participants (
   scraped_at timestamptz,
   updated_at timestamptz not null default now(),
   created_at timestamptz not null default now(),
-  unique(event_platform_url_id, display_name)
+  unique(event_platform_url_id, natural_key)
 );
 
 -- 1問1答の回答テーブル（Phase 2で書き込み。スキーマのみ先行）

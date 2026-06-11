@@ -71,19 +71,31 @@ Deno.serve(async (req: Request) => {
     .single();
 
   if (epu) {
-    const rows = result.participants.map((p) => ({
-      event_platform_url_id: epu.id,
-      display_name: p.displayName,
-      screen_name: p.screenName,
-      profile_url: p.profileUrl,
-      status: p.status,
-      source_platform: result.platform,
-      scraped_at: result.fetchedAt,
-    }));
+    // 参加者の同一性キー（CR-01対応）:
+    //   screen_name があればそれを、なければ 'dn:' + display_name をキーにする
+    //   （'dn:' プレフィックスで screen_name 値とのキー空間衝突を防ぐ）
+    // バッチ内で同一キーが重複すると Postgres が
+    // "ON CONFLICT DO UPDATE command cannot affect row a second time" で
+    // バッチ全体を reject するため、upsert 前に last-wins で重複除去する
+    const byKey = new Map<string, Record<string, unknown>>();
+    for (const p of result.participants) {
+      const naturalKey = p.screenName ?? `dn:${p.displayName}`;
+      byKey.set(naturalKey, {
+        event_platform_url_id: epu.id,
+        display_name: p.displayName,
+        screen_name: p.screenName,
+        profile_url: p.profileUrl,
+        natural_key: naturalKey,
+        status: p.status,
+        source_platform: result.platform,
+        scraped_at: result.fetchedAt,
+      });
+    }
+    const rows = [...byKey.values()];
 
     const { error: upsertError } = await supabase
       .from("participants")
-      .upsert(rows, { onConflict: "event_platform_url_id,display_name" });
+      .upsert(rows, { onConflict: "event_platform_url_id,natural_key" });
 
     if (upsertError) {
       console.error(`[scraper] upsert error: ${upsertError.message}`);
