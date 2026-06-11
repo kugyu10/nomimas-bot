@@ -134,3 +134,24 @@ export function transition(
     reply: "reprompt",
   };
 }
+
+/**
+ * answers UPSERT 失敗時の遷移結果フォールバック純関数（02-REVIEW WR-02対応）。
+ *
+ * 回答の永続化に失敗した場合、index / status を前進させると回答が恒久的に
+ * 失われる（再収集経路がない）。そのため遷移を取り消し、同一質問を再提示
+ * （reprompt）して次の postback でリトライさせる。
+ *
+ * @param current 遷移前の参加者状態（status / index 不変で返す）
+ * @returns 前進なし・answer なし・reply="reprompt" の TransitionResult
+ */
+export function answerPersistFailureResult(
+  current: { status: ConfirmStatus; index: number },
+): TransitionResult {
+  return {
+    nextStatus: current.status,
+    nextIndex: current.index,
+    answer: null,
+    reply: "reprompt",
+  };
+}

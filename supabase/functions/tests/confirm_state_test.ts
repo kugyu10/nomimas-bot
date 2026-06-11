@@ -3,7 +3,7 @@
 // 実行: deno test --config supabase/functions/deno.json --allow-read supabase/functions/tests/confirm_state_test.ts
 
 import { assertEquals } from "jsr:@std/assert";
-import { transition } from "../_shared/confirm/state.ts";
+import { answerPersistFailureResult, transition } from "../_shared/confirm/state.ts";
 import type { ConfirmStatus } from "../_shared/confirm/state.ts";
 
 // 定型3問フィクスチャ（年齢確認・飲酒有無・遅刻早退予定）
@@ -204,4 +204,30 @@ Deno.test("transition: questions が空配列 → answer=null / reply=none（防
 
   assertEquals(result.answer, null);
   assertEquals(result.reply, "none");
+});
+
+// ==================== answerPersistFailureResult（WR-02） ====================
+
+Deno.test("answerPersistFailureResult: UPSERT失敗時は index/status を前進させず reprompt にフォールバックする", () => {
+  // 正常遷移なら in_progress/index=1 に前進するケース
+  const normal = transition(
+    current("sent", 0),
+    QUESTIONS,
+    { questionId: "q_age", optionIndex: 0 },
+  );
+  assertEquals(normal.nextIndex, 1, "前提: 正常時は index が前進する");
+
+  // UPSERT失敗フォールバック: 前進が取り消される
+  const fallback = answerPersistFailureResult(current("sent", 0));
+  assertEquals(fallback.nextStatus, "sent", "status が前進しないこと");
+  assertEquals(fallback.nextIndex, 0, "index が前進しないこと");
+  assertEquals(fallback.answer, null, "answer は永続化されていないため null");
+  assertEquals(fallback.reply, "reprompt", "同一質問の再提示でリトライさせること");
+});
+
+Deno.test("answerPersistFailureResult: in_progress 途中の失敗でも現在位置を維持する", () => {
+  const fallback = answerPersistFailureResult(current("in_progress", 2));
+  assertEquals(fallback.nextStatus, "in_progress");
+  assertEquals(fallback.nextIndex, 2);
+  assertEquals(fallback.reply, "reprompt");
 });

@@ -27,7 +27,7 @@ import { issueStatelessToken } from "../_shared/line/token.ts";
 import { replyMessage } from "../_shared/line/client.ts";
 import { parseWebhookEvent } from "../_shared/line/events.ts";
 import { decodePostbackData } from "../_shared/confirm/postback.ts";
-import { transition } from "../_shared/confirm/state.ts";
+import { answerPersistFailureResult, transition } from "../_shared/confirm/state.ts";
 import type { ConfirmStatus, Question } from "../_shared/confirm/state.ts";
 import {
   buildCompletionMessages,
@@ -285,7 +285,7 @@ async function handleEvent(
       index: participantRow.current_question_index,
     };
 
-    const result = transition(
+    let result = transition(
       current,
       oaConfig.questions,
       { questionId, optionIndex },
@@ -314,7 +314,9 @@ async function handleEvent(
         console.error(
           `webhook: answers upsert failed participant_id=${participantId}: ${upsertError.message}`,
         );
-        // upsert失敗でもreplyは試みる（DB更新先行ポリシーを維持しつつ部分成功を許容）
+        // WR-02: 保存失敗時は index/status を前進させず、同一質問を再提示して
+        // 次の postback でリトライさせる（前進すると回答が恒久的に失われる）
+        result = answerPersistFailureResult(current);
       }
     }
 
