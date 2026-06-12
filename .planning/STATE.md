@@ -72,13 +72,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- **（解消 2026-06-12 未明）Claude組織の月間支出上限に一時到達** — プローブで回復を確認し、Wave 1の続きから自動再開 — Phase 2 Wave 1実行中に全サブエージェントが停止（"You've hit your org's monthly spend limit"）。上限引き上げ（claude.ai/admin-settings/usage）後に `/gsd:resume-work` または `/gsd:autonomous --from 2` で再開。
-  - Phase 1は完全完了・push済み（verification passed 5/5）
-  - Phase 2は計画完了（4プラン・チェッカーPASS）。実行は部分進行で停止:
-    - 02-01: Task 1のみコミット済み（スキーマin-place拡張+seed — `10902ef`）。Task 2（Vault cron マイグレーション+scripts）・Task 3（[BLOCKING] db reset --linked 再適用）は未実施 — **ディスク上のマイグレーションがdev DBより先行している**状態。再開時は02-01のTask 2から（SUMMARYなしのため safe-resume gate が発火する想定）
-    - 02-02: Task 1のRED段階のみコミット済み（postback/eventsの失敗テスト — `3ca62b5`）。GREEN実装は未着手のため、**フルテストスイートは意図的に失敗するTDD状態**（既存12件はグリーン: twipla_parser/line_signature単体で確認済み）
-    - 02-03 / 02-04: 未着手
-
+- （解消 2026-06-12 未明）Claude組織の月間支出上限に一時到達 — プローブで回復確認後、Phase 2を最後まで完走（全4プラン・検証4/4パス）
 - （解消済み 2026-06-12）LINEのチャネルアクセストークンは静的発行せず、実行時にステートレストークン(v3・有効15分)を channel_id+channel_secret から都度発行する（POST https://api.line.me/oauth2/v3/token）。dev/prod両チャネルとも発行テスト成功済み。実機配信テストは夜間から可能
 - （一部解消 2026-06-12）X OAuthアプリ作成済み・Client ID/Secretはenvに格納済み（当面devアプリをprodにも流用）。残作業: Supabase Auth側のTwitterプロバイダー有効化（Dashboard or Management API）と、Xアプリ側コールバックURL（https://<ref>.supabase.co/auth/v1/callback がdev/prod両方登録済みか）の確認。未確認のうちはモック認証フォールバックを維持
 - Twiplaサンプルイベント（スクレイパー実地検証用）: https://twipla.jp/events/731057
