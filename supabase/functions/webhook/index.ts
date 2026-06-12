@@ -97,6 +97,16 @@ Deno.serve(async (req) => {
     return new Response("invalid signature", { status: 401 });
   }
 
+  // (2.5) LINE_CHANNEL_ID 未設定も設定エラーとして 500（WR-06）
+  // 未設定のまま進むと oa_configs 検索が空振りし「oa_configs not found」の200で
+  // 全イベントが黙殺される（設定漏れが表面化しない）。署名検証より後・JSON検証より前に
+  // 配置して順序契約（署名不正は常に401が先）は維持する
+  const channelId = Deno.env.get("LINE_CHANNEL_ID") ?? "";
+  if (!channelId) {
+    console.error("webhook: LINE_CHANNEL_ID is not set");
+    return new Response("server configuration error", { status: 500 });
+  }
+
   // (3) JSON.parse(rawBody) → zodで形状検証
   let payload: z.infer<typeof WebhookPayloadSchema>;
   try {
@@ -112,8 +122,6 @@ Deno.serve(async (req) => {
 
   // (4) イベントルーティング + ステートマシン接続
   // 署名検証済み後のすべての処理は例外が漏れても200を返す（再配達防止）
-
-  const channelId = Deno.env.get("LINE_CHANNEL_ID") ?? "";
 
   // OA設定を解決（line_channel_id = env LINE_CHANNEL_ID で1行 select）
   // replyが必要になった時点でトークンを遅延発行するため supabase クライアントを先に作る
