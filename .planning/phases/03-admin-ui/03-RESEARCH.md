@@ -683,7 +683,7 @@ insert into public.oa_configs (id, name, questions) values
 | A4 | X アプリ側のコールバック URL（https://cmsxvxtcdniqgvhxjqri.supabase.co/auth/v1/callback）が X developer portal に登録済み | AUTH-01 | 中 — 未登録だと実 OAuth が失敗するが、これは元々 HUMAN-UAT 領域（CONTEXT specifics に未確認と明記済み）。モック経路は無影響 |
 | A5 | server action からの fetch で session.access_token が常に有効（proxy がリフレッシュ済み） | Pattern 6 | 低 — proxy.ts が全リクエストで updateSession するため action 到達時点で新鮮。万一 401 なら refreshSession() リトライを追加 |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **X identity の screen_name キー名**（A1） — HUMAN-UAT の初回実ログイン後に `select provider, identity_data from auth.identities` で確認するタスクを Phase 末尾に置く。実装は両キー対応の coalesce で吸収しておく。
 2. **イベント編集時の platform URL 削除**（event_platform_urls の DELETE） — 参加者が紐付いた URL の削除は cascade で participants ごと消える。v1 では「URL の追加のみ・削除は不可」とするのが安全（planner 判断。UI-SPEC は追加ボタンのみ規定しており削除 UI の記載なし → 追加のみで UI-SPEC 違反にならない）。
