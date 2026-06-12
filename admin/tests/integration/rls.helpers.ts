@@ -73,12 +73,14 @@ export function connectDev(): postgres.Sql {
  * 実証: set local role authenticated + set_config(request.jwt.claims) により
  *       auth.uid() が userId を返し RLS が実効する（RESEARCH Pattern 5 dev 実証済み）
  */
-export async function asUser<T>(
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function asUser<T = any>(
   sql: postgres.Sql,
   userId: string,
   fn: (tx: postgres.TransactionSql) => Promise<T>,
 ): Promise<T> {
-  return await sql.begin(async (tx) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result = await sql.begin(async (tx: postgres.TransactionSql): Promise<any> => {
     await tx`set local role authenticated`;
     await tx`select set_config(
       'request.jwt.claims',
@@ -87,4 +89,5 @@ export async function asUser<T>(
     )`;
     return await fn(tx);
   });
+  return result as T;
 }
