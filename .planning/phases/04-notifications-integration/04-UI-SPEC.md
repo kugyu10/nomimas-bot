@@ -1,7 +1,7 @@
 ---
 phase: 4
 slug: notifications-integration
-status: draft
+status: approved
 shadcn_initialized: true
 preset: new-york / neutral base / zinc accent (inherited from Phase 3)
 created: 2026-06-12
@@ -147,7 +147,7 @@ Insertion point: `admin/components/oa/question-list-editor.tsx` — add trigger 
 │ 例: 歓迎会の定型質問セット               │
 │ ※ 現在の質問 {n} 件を保存します         │
 ├─────────────────────────────────────────┤
-│ [キャンセル]  [テンプレートとして保存]   │
+│ [保存しない]  [テンプレートとして保存]   │
 └─────────────────────────────────────────┘
 ```
 
@@ -155,7 +155,7 @@ Insertion point: `admin/components/oa/question-list-editor.tsx` — add trigger 
 - Input label: "テンプレート名" (12px/400, form label)
 - Input placeholder: "例: 歓迎会の定型質問セット"
 - Helper text below input: "現在の質問 {n} 件を保存します" (12px/400, muted color). `{n}` is interpolated at runtime.
-- Footer: [キャンセル (ghost variant)] [テンプレートとして保存 (default variant = bg-primary)]
+- Footer: [保存しない (ghost variant)] [テンプレートとして保存 (default variant = bg-primary)]
 - "テンプレートとして保存" button in footer: disabled while name input is empty or while save is in-flight. Shows spinner icon when in-flight. **(auto)**
 - On success: dialog closes + show inline Alert (success): "テンプレートを保存しました"
 - On error: dialog stays open + show error below footer: "テンプレートの保存に失敗しました。もう一度お試しください"
@@ -352,7 +352,7 @@ All copy in Japanese. Inherits all entries from 03-UI-SPEC.md Copywriting Contra
 | Template — name input placeholder | 例: 歓迎会の定型質問セット | auto |
 | Template — helper text | 現在の質問 {n} 件を保存します | auto |
 | Template — save Dialog CTA (footer) | テンプレートとして保存 | CONTEXT.md locked |
-| Template — save Dialog cancel | キャンセル | auto |
+| Template — save Dialog cancel | 保存しない | auto (checker fix) |
 | Template — save success | テンプレートを保存しました | auto |
 | Template — save error | テンプレートの保存に失敗しました。もう一度お試しください | auto |
 | Template — apply section label | テンプレートを適用 | auto |
