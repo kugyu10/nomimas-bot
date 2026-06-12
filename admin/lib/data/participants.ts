@@ -119,7 +119,7 @@ export async function getParticipantsWithAnswers(
     display_name: p.display_name,
     screen_name: p.screen_name as string | null,
     line_user_id: p.line_user_id as string | null,
-    line_user: p.line_user as { display_name: string | null } | null,
+    line_user: (p.line_user as unknown) as { display_name: string | null } | null,
     confirm_status: p.confirm_status,
     answers: (p.answers as Array<{ question_key: string; answer: string | null; answered_at: string }>)
       ?? [],
@@ -187,7 +187,7 @@ export async function getLinkingLists(
         screen_name: p.screen_name as string | null,
       });
     } else {
-      const lu = p.line_user as { id: string; display_name: string | null; line_user_id: string } | null;
+      const lu = (p.line_user as unknown) as { id: string; display_name: string | null; line_user_id: string } | null;
       linked.push({
         id: p.id,
         display_name: p.display_name,
