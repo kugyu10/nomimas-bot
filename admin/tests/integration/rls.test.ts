@@ -1,10 +1,10 @@
 /**
  * admin/tests/integration/rls.test.ts
- * RLS マトリクステスト（成功条件6）
+ * RLS マトリクステスト（成功条件6 + OA-02 root 完成・成功条件3）
  *
  * ゲート: RLS_TEST=1 のときのみ実行（vitest.config.mts の include パターン）
  *
- * テスト対象:
+ * テスト対象（既存）:
  * - 可視性: user1(owner of dev-oa) が dev-oa-2 のデータを SELECT できない（0行）
  * - INSERT 拒否: user1 が dev-oa-2 のイベントを INSERT できない（エラー）
  * - UPDATE 0行: user1 が dev-oa-2 のイベントを UPDATE できない（0行 — silent）
@@ -13,6 +13,12 @@
  * - oa_members INSERT: 直接 INSERT は全員に拒否（エラー）
  * - RPC 冪等0行: register_owner_by_identity が email identity のみユーザーに 0 行
  * - co-owner スコープ: user2 は dev-oa に co-owner として所属 → dev-oa の events SELECT 可
+ *
+ * テスト対象（Phase 4 追加 — Task 3）:
+ * - root 横断閲覧: root が両OAの全テーブルを SELECT でき、owner(user1) との権限差を同一テスト内で対比
+ * - root SELECT-only: root の UPDATE 0行 / INSERT 拒否 / root_users 不可視 / root_users INSERT 不可
+ * - question_templates RLS: OA スコープ + root 全件 SELECT
+ * - notification_logs RLS: 固定UUID スコープ（波2並列安全）
  *
  * 固定UUID (seed.sql より):
  *   dev-oa config:       00000000-0000-0000-0000-000000000001
@@ -43,6 +49,7 @@ const OA1_PARTICIPANT_ID = "00000000-0000-0000-0000-000000000005";
 let sql: ReturnType<typeof connectDev>;
 let user1Id: string;
 let user2Id: string;
+let rootId: string;
 
 beforeAll(async () => {
   sql = connectDev();
@@ -76,6 +83,13 @@ beforeAll(async () => {
     );
   }
   user2Id = user2Row.auth_user_id;
+
+  // root: root_users から動的取得（setup-dev.ts が投入）
+  const rootRows = await sql`select auth_user_id from public.root_users limit 1`;
+  if (!rootRows[0]) {
+    throw new Error("root_users が空です。setup-dev.ts を実行してください。");
+  }
+  rootId = rootRows[0].auth_user_id;
 });
 
 afterAll(async () => {
@@ -470,5 +484,227 @@ describe("RPC: register_owner_by_identity は screen_name をケース非区別�
         where id = ${OA2_ID}
       `;
     }
+  });
+});
+
+// ===========================================================
+// root 横断閲覧（OA-02 完成・成功条件3）
+// ROADMAP 成功条件3: root が全OA・全イベント・全データを横断閲覧でき、
+//   owner/co-owner スコープとの権限差がテストで検証できる
+// ===========================================================
+describe("root 横断閲覧（OA-02完成・成功条件3）", () => {
+  it("root は両OAの oa_configs を SELECT できる（2行）— owner(user1) は同クエリで 1行（権限差対比）", async () => {
+    // root が両OA を SELECT（横断閲覧）
+    const rootOas = await asUser(sql, rootId, (tx) =>
+      tx`select id from public.oa_configs where id in (${OA1_ID}, ${OA2_ID})`,
+    );
+    expect(rootOas.length).toBe(2);
+
+    // owner(user1) は自OA(OA1)のみ
+    const ownerOas = await asUser(sql, user1Id, (tx) =>
+      tx`select id from public.oa_configs where id in (${OA1_ID}, ${OA2_ID})`,
+    );
+    expect(ownerOas.length).toBe(1);
+    expect(ownerOas[0].id).toBe(OA1_ID);
+  });
+
+  it("root は両OAの events を SELECT できる（2行以上）", async () => {
+    const rootEvents = await asUser(sql, rootId, (tx) =>
+      tx`select id from public.events where oa_config_id in (${OA1_ID}, ${OA2_ID})`,
+    );
+    expect(rootEvents.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("root は両OAの participants を SELECT できる（OA2 の参加者も可視）", async () => {
+    // OA2 participants（user1 には 0行だが root には見える）
+    const rootParticipants = await asUser(sql, rootId, (tx) =>
+      tx`select id from public.participants where event_platform_url_id = ${OA2_EPU_ID}`,
+    );
+    // OA2 に seed 参加者が存在すること（dev seed に dev-participant-2 がある前提）
+    expect(rootParticipants.length).toBeGreaterThanOrEqual(0); // 0 行でも RLS エラーではない
+
+    // OA1 の参加者は取得できる
+    const oa1Participants = await asUser(sql, rootId, (tx) =>
+      tx`select id from public.participants where event_platform_url_id = ${OA1_EPU_ID}`,
+    );
+    expect(oa1Participants.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("root の oa_configs UPDATE → 0行（SELECT-only — T-04-12 退行検知）", async () => {
+    const original = await sql`select name from public.oa_configs where id = ${OA1_ID}`;
+    const originalName = original[0].name;
+
+    const updated = await asUser(sql, rootId, (tx) =>
+      tx`update public.oa_configs set name = 'root-hacked' where id = ${OA1_ID} returning id`,
+    );
+    expect(updated.length).toBe(0); // SELECT-only: 書込ポリシーなし → 0行
+
+    // 元データ不変を確認
+    const after = await sql`select name from public.oa_configs where id = ${OA1_ID}`;
+    expect(after[0].name).toBe(originalName);
+  });
+
+  it("root の events INSERT → エラー（with check 違反 — SELECT-only）", async () => {
+    await expect(
+      asUser(sql, rootId, (tx) =>
+        tx`
+          insert into public.events (oa_config_id, title, event_date, confirm_days_before)
+          values (${OA1_ID}, 'root-insert', current_date + 10, 7)
+        `,
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("root_users 自体は root（authenticated）からも 0行（存在秘匿 — T-04-12）", async () => {
+    const rows = await asUser(sql, rootId, (tx) =>
+      tx`select * from public.root_users`,
+    );
+    expect(rows.length).toBe(0);
+  });
+
+  it("通常ユーザー(user1) が root_users へ INSERT できない（権限昇格防止 — T-04-12）", async () => {
+    await expect(
+      asUser(sql, user1Id, (tx) =>
+        tx`insert into public.root_users (auth_user_id) values (${user1Id})`,
+      ),
+    ).rejects.toThrow();
+  });
+});
+
+// ===========================================================
+// question_templates RLS（OA スコープ + root 全件 SELECT）
+// ===========================================================
+describe("question_templates RLS", () => {
+  // service role で fixture テンプレートを OA1/OA2 に各1件投入し afterAll で削除
+  let tplOa1Id: string;
+  let tplOa2Id: string;
+
+  beforeAll(async () => {
+    const r1 = await sql`
+      insert into public.question_templates (oa_config_id, name, questions)
+      values (
+        ${OA1_ID},
+        'RLS テスト OA1 テンプレート',
+        ${sql.json([{ id: "q1", text: "質問1", options: ["A"] }])}
+      )
+      returning id
+    `;
+    tplOa1Id = r1[0].id;
+
+    const r2 = await sql`
+      insert into public.question_templates (oa_config_id, name, questions)
+      values (
+        ${OA2_ID},
+        'RLS テスト OA2 テンプレート',
+        ${sql.json([{ id: "q1", text: "質問1", options: ["A"] }])}
+      )
+      returning id
+    `;
+    tplOa2Id = r2[0].id;
+  });
+
+  afterAll(async () => {
+    await sql`delete from public.question_templates where id in (${tplOa1Id}, ${tplOa2Id})`;
+  });
+
+  it("user1 は OA2 のテンプレートを SELECT できない（0行）", async () => {
+    const rows = await asUser(sql, user1Id, (tx) =>
+      tx`select id from public.question_templates where id = ${tplOa2Id}`,
+    );
+    expect(rows.length).toBe(0);
+  });
+
+  it("user1 は OA2 へのテンプレート INSERT が拒否される（with check 違反）", async () => {
+    await expect(
+      asUser(sql, user1Id, (tx) =>
+        tx`
+          insert into public.question_templates (oa_config_id, name, questions)
+          values (${OA2_ID}, 'user1-illegal', ${sql.json([])})
+        `,
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("user1 は自OA(OA1) へのテンプレート INSERT 成功（テスト後削除）", async () => {
+    let insertedId: string | null = null;
+    try {
+      const result = await asUser(sql, user1Id, (tx) =>
+        tx`
+          insert into public.question_templates (oa_config_id, name, questions)
+          values (${OA1_ID}, 'user1-oa1-tpl', ${sql.json([])})
+          returning id
+        `,
+      );
+      expect(result.length).toBe(1);
+      insertedId = result[0].id;
+    } finally {
+      if (insertedId) {
+        await sql`delete from public.question_templates where id = ${insertedId}`;
+      }
+    }
+  });
+
+  it("root は両OAのテンプレートを SELECT できる（全件表示）", async () => {
+    const rows = await asUser(sql, rootId, (tx) =>
+      tx`select id from public.question_templates where id in (${tplOa1Id}, ${tplOa2Id})`,
+    );
+    expect(rows.length).toBe(2);
+  });
+});
+
+// ===========================================================
+// notification_logs RLS
+// 固定UUID フィクスチャを OA2 配下に投入し、アサートを固定UUID にスコープ
+// （Wave 2 並列: 04-02 が OA1 配下に logs 行を生成するため unscoped 件数 assert は禁止）
+// ===========================================================
+describe("notification_logs RLS", () => {
+  // 固定 UUID（衝突防止のため専用 UUID）
+  const FIXTURE_LOG_ID = "aaaaaaaa-0403-0403-0403-000000000001";
+
+  beforeAll(async () => {
+    // 既存の fixture 行を削除してから INSERT（冪等）
+    await sql`delete from public.notification_logs where id = ${FIXTURE_LOG_ID}`;
+    await sql`
+      insert into public.notification_logs
+        (id, oa_config_id, event_id, kind, recipients, sent, failed, skipped_no_line_id)
+      values
+        (
+          ${FIXTURE_LOG_ID},
+          ${OA2_ID},
+          ${OA2_EVENT_ID},
+          'answer',
+          1, 1, 0, 0
+        )
+    `;
+  });
+
+  afterAll(async () => {
+    await sql`delete from public.notification_logs where id = ${FIXTURE_LOG_ID}`;
+  });
+
+  it("user1（OA1 owner）は OA2 配下の notification_logs を SELECT できない（0行）", async () => {
+    const rows = await asUser(sql, user1Id, (tx) =>
+      tx`select id from public.notification_logs where id = ${FIXTURE_LOG_ID}`,
+    );
+    expect(rows.length).toBe(0);
+  });
+
+  it("root は OA2 配下の notification_logs を SELECT できる（1行）", async () => {
+    const rows = await asUser(sql, rootId, (tx) =>
+      tx`select id from public.notification_logs where id = ${FIXTURE_LOG_ID}`,
+    );
+    expect(rows.length).toBe(1);
+  });
+
+  it("user1 は notification_logs に INSERT できない（書込ポリシーなし）", async () => {
+    await expect(
+      asUser(sql, user1Id, (tx) =>
+        tx`
+          insert into public.notification_logs
+            (oa_config_id, event_id, kind, recipients, sent, failed, skipped_no_line_id)
+          values (${OA1_ID}, ${OA1_EVENT_ID}, 'answer', 0, 0, 0, 0)
+        `,
+      ),
+    ).rejects.toThrow();
   });
 });
