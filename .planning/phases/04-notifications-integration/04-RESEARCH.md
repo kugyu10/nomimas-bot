@@ -664,15 +664,15 @@ assertEquals(outLogs[0].c, 0, "2日前より前のイベントでは通知され
 | A4 | db reset --linked 後も auth.users が残る/消えるに関わらず setup-dev の冪等 ensureUser で復元できる（Phase 3 A2 の継続） | Pitfall 6 | 低 — 確立フローに setup-dev 再実行が含まれる |
 | A5 | scraper への通知ロジック追加後も既存の twipla_live_test / scraper-trigger.test が green（変更は epu select 拡張 + upsert 後の追記のみで応答形式の既存フィールド不変） | Pattern 1 | 低 — レスポンスに changes フィールドを足す場合も既存キー（platform/count/saved）は不変に保つ |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **scraper レスポンスに changes/notified を含めるか**
+1. **scraper レスポンスに changes/notified を含めるか** — RESOLVED: 含める（既存キー不変・追加のみ。04-02 Task 2で確定）
    - What we know: E2E は notification_logs で検証可能なので必須ではない。管理画面の「参加者を取得」結果表示に使える
    - Recommendation: 含める（既存キー不変・追加のみ）。planner 確定でよい
-2. **初回スクレイプ（existing 0行）の通知スキップ**
+2. **初回スクレイプ（existing 0行）の通知スキップ** — RESOLVED: 初回スキップ+件数ログ（04-02 Task 2で確定）
    - What we know: CONTEXT は「再スクレイプで…変化」「新規参加者の出現も対象」— 初回全員通知は文言上グレー
    - Recommendation: 初回スキップ+件数ログ（Pitfall 2）。通知文面と同じく裁量領域
-3. **login/page.tsx line 30（OAuth 起動失敗）の文言**
+3. **login/page.tsx line 30（OAuth 起動失敗）の文言** — RESOLVED: 汎用文言「ログインに失敗しました。もう一度お試しください」（04-04 Task 1で確定）
    - Recommendation: 「ログインに失敗しました。もう一度お試しください」（locked 文言は line 43 のみ）
 
 ## Environment Availability
