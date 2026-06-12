@@ -46,9 +46,11 @@ export default function LoginPage() {
     }
     // モック経路の自動登録 (email identity では 0 行の no-op — 経路統一)
     await supabase.rpc("register_owner_by_identity");
-    // IN-02: ディープリンク復帰（origin 相対パスのみ許可 — callback と同一の検証）
+    // IN-02: ディープリンク復帰 — origin 相対パスのみ許可。
+    // "//evil.com" / "/\evil.com" は protocol-relative URL として解釈されるため明示的に拒否する
     const next = new URLSearchParams(window.location.search).get("next") ?? "/events";
-    window.location.href = next.startsWith("/") ? next : "/events";
+    const isSafeNext = next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\");
+    window.location.href = isSafeNext ? next : "/events";
   }
 
   return (
