@@ -61,6 +61,11 @@ interface ParticipantRow {
   confirm_status: string;
   current_question_index: number;
   line_user_id: string | null; // line_users.id (uuid FK)
+  // WR-05: participant の所属イベント側 OA 境界照合用
+  // participants.event_platform_url_id → event_platform_urls.event_id → events.oa_config_id
+  event_platform_urls: {
+    events: { oa_config_id: string } | null;
+  } | null;
 }
 
 /** line_users 行（webhook用） */
@@ -236,10 +241,13 @@ async function handleEvent(
 
     const { participantId, questionId, optionIndex } = payload;
 
-    // participants を select（line_users の uuid FK を取得）
+    // participants を select（line_users の uuid FK と所属イベントの oa_config_id を取得）
+    // WR-05: event_platform_urls→events をネスト select し OA 境界照合に使う
     const { data: participantRowData, error: participantError } = await supabase
       .from("participants")
-      .select("id, confirm_status, current_question_index, line_user_id")
+      .select(
+        "id, confirm_status, current_question_index, line_user_id, event_platform_urls(events(oa_config_id))",
+      )
       .eq("id", participantId)
       .single();
     const participantRow = participantRowData as ParticipantRow | null;
@@ -275,11 +283,17 @@ async function handleEvent(
     }
 
     // T-02-11: なりすまし照合（保存・遷移・replyのすべてより前）
-    // source.userId と line_users.line_user_id の一致
-    // oa_config_id 境界も確認
+    // (1) source.userId と line_users.line_user_id の一致
+    // (2) line_users.oa_config_id 境界の確認
+    // (3) WR-05: participant の所属イベント（events.oa_config_id）も同一OAであること
+    //     — OA-A の line_user に OA-B のイベント参加者が紐付くデータ不整合があっても
+    //       OA-A の questions に基づく回答が OA-B の answers に書き込まれない
+    const participantEventOaId =
+      participantRow.event_platform_urls?.events?.oa_config_id ?? null;
     if (
       lineUserRow.line_user_id !== event.userId ||
-      lineUserRow.oa_config_id !== oaConfig.id
+      lineUserRow.oa_config_id !== oaConfig.id ||
+      participantEventOaId !== oaConfig.id
     ) {
       // なりすまし検出: participant_id のみログ（userId非ログ — T-02-14）
       console.warn(

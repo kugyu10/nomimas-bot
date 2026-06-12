@@ -519,3 +519,76 @@ Deno.test({
     }
   },
 });
+
+Deno.test({
+  name: "e2e: cross-OA participant の postback が拒否される（WR-05）",
+  ignore: !IS_E2E,
+  async fn() {
+    const sql = connectDev();
+    const projectRef = getRequiredEnv("DEV_PROJECT_REF");
+    const channelSecret = getRequiredEnv("LINE_CHANNEL_SECRET");
+    const webhookUrl = `https://${projectRef}.supabase.co/functions/v1/webhook`;
+
+    // フィクスチャ: OA-B 配下のイベント参加者を OA-A(dev-oa) の line_user に紐付ける
+    const FX_OA_B = "00000000-0000-0000-e2e5-000000000001";
+    const FX_EVENT_B = "00000000-0000-0000-e2e5-000000000002";
+    const FX_EPU_B = "00000000-0000-0000-e2e5-000000000003";
+    const FX_PARTICIPANT_B = "00000000-0000-0000-e2e5-000000000004";
+    const SEED_LINE_USER_UUID = "00000000-0000-0000-0000-000000000004"; // OA-A(dev-oa) 所属
+
+    try {
+      // OA-B（line_channel_id は null — webhook の OA 解決には掛からない別 OA）
+      await sql`
+        INSERT INTO public.oa_configs (id, name, line_channel_id, questions)
+        VALUES (${FX_OA_B}, 'fx-oa-b-wr05', NULL, '[]'::jsonb)
+        ON CONFLICT (id) DO NOTHING
+      `;
+      await sql`
+        INSERT INTO public.events (id, oa_config_id, title, event_date, confirm_days_before)
+        VALUES (${FX_EVENT_B}, ${FX_OA_B}, 'fx-event-b-wr05', current_date + 3, 7)
+        ON CONFLICT (id) DO NOTHING
+      `;
+      await sql`
+        INSERT INTO public.event_platform_urls (id, event_id, platform, url)
+        VALUES (${FX_EPU_B}, ${FX_EVENT_B}, 'twipla', 'https://twipla.jp/fx-wr05')
+        ON CONFLICT (id) DO NOTHING
+      `;
+      // OA-B のイベント参加者だが OA-A の line_user に紐付くデータ不整合行
+      await sql`
+        INSERT INTO public.participants (id, event_platform_url_id, display_name, natural_key, status, line_user_id, confirm_status, current_question_index)
+        VALUES (${FX_PARTICIPANT_B}, ${FX_EPU_B}, 'fx-p-wr05', 'dn:fx-p-wr05', 'attending', ${SEED_LINE_USER_UUID}, 'sent', 0)
+        ON CONFLICT (id) DO NOTHING
+      `;
+
+      // OA-A の webhook 経由で cross-OA participant への postback を送信
+      // line_user 照合(1)(2)は通るが、event 側 OA 境界(3)で拒否されるべき
+      const data = encodePostback(FX_PARTICIPANT_B, Q_AGE, 0);
+      const resp = await sendSignedEvent(webhookUrl, channelSecret, [
+        makePostbackEvent(SEED_LINE_USER_ID_STR, data),
+      ]);
+      assertEquals(resp.status, 200, "cross-OA postback → 200（再配達防止のため常に200）");
+      await resp.body?.cancel();
+
+      // answers に行が書かれていないこと
+      const answers = await sql<{ count: string }[]>`
+        SELECT COUNT(*) as count FROM public.answers WHERE participant_id = ${FX_PARTICIPANT_B}
+      `;
+      assertEquals(Number(answers[0]?.count), 0, "cross-OA participant の answers に行が書かれないこと（WR-05）");
+
+      // 状態が変化していないこと
+      const state = await sql<{ confirm_status: string; current_question_index: number }[]>`
+        SELECT confirm_status, current_question_index FROM public.participants WHERE id = ${FX_PARTICIPANT_B}
+      `;
+      assertEquals(state[0]?.confirm_status, "sent", "cross-OA participant の confirm_status が不変であること");
+      assertEquals(state[0]?.current_question_index, 0, "cross-OA participant の index が不変であること");
+    } finally {
+      // フィクスチャ削除（FK順）
+      await sql`DELETE FROM public.answers WHERE participant_id = ${FX_PARTICIPANT_B}`;
+      await sql`DELETE FROM public.participants WHERE id = ${FX_PARTICIPANT_B}`;
+      await sql`DELETE FROM public.event_platform_urls WHERE id = ${FX_EPU_B}`;
+      await sql`DELETE FROM public.events WHERE id = ${FX_EVENT_B}`;
+      await sql`DELETE FROM public.oa_configs WHERE id = ${FX_OA_B}`;
+      await sql.end();
+    }
+  },
+});
