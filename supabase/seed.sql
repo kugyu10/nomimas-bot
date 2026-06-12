@@ -72,3 +72,77 @@ values (
   'pending'
 )
 on conflict (id) do nothing;
+
+-- =============================================================
+-- Phase 3 Plan 01: RLSマトリクステスト用 2nd OA フィクスチャ
+-- dev-oa-2: user2がownerの別OA（user1からは見えないことを検証するため）
+-- メンバー行は auth.users 依存のため seed 時点では投入しない
+-- メンバー投入は scripts/setup-dev.ts で行う（モックユーザー作成後）
+-- =============================================================
+
+-- 2つ目のOA設定（dev-oa-2）
+insert into public.oa_configs (id, name, line_channel_id, admin_twitter_id, greeting_message, questions)
+values (
+  '00000000-0000-0000-0000-000000000011',
+  'dev-oa-2',
+  null,
+  null,
+  null,
+  '[
+    {"id": "q_age", "text": "年齢確認です。あなたは20歳以上ですか？", "options": ["20歳以上です", "未成年です"]}
+  ]'::jsonb
+)
+on conflict (id) do nothing;
+
+-- dev-oa-2 配下のテストイベント
+insert into public.events (id, oa_config_id, title, event_date, confirm_days_before)
+values (
+  '00000000-0000-0000-0000-000000000012',
+  '00000000-0000-0000-0000-000000000011',
+  'dev-event-2',
+  current_date + 5,
+  7
+)
+on conflict (id) do nothing;
+
+-- dev-oa-2 イベントのTwiplaURL（url は unique制約 — 既存731057と非衝突）
+insert into public.event_platform_urls (id, event_id, platform, url)
+values (
+  '00000000-0000-0000-0000-000000000013',
+  '00000000-0000-0000-0000-000000000012',
+  'twipla',
+  'https://twipla.jp/events/999999'
+)
+on conflict (id) do nothing;
+
+-- dev-oa-2 配下のLINEユーザー
+insert into public.line_users (id, oa_config_id, line_user_id, display_name)
+values (
+  '00000000-0000-0000-0000-000000000014',
+  '00000000-0000-0000-0000-000000000011',
+  'U00000000000000000000000000000oa2',
+  'oa2テストユーザー'
+)
+on conflict (id) do nothing;
+
+-- dev-oa-2 イベントの参加者
+insert into public.participants (id, event_platform_url_id, display_name, natural_key, status, confirm_status)
+values (
+  '00000000-0000-0000-0000-000000000015',
+  '00000000-0000-0000-0000-000000000013',
+  'oa2テスト参加者',
+  'dn:oa2テスト参加者',
+  'attending',
+  'pending'
+)
+on conflict (id) do nothing;
+
+-- ADMIN-01統合テスト用回答フィクスチャ（dev-oa側の既存参加者...0005への回答）
+insert into public.answers (id, participant_id, question_key, answer)
+values (
+  '00000000-0000-0000-0000-000000000006',
+  '00000000-0000-0000-0000-000000000005',
+  'q_age',
+  '20歳以上です'
+)
+on conflict (id) do nothing;

@@ -1,6 +1,6 @@
--- RLS有効化 + 最小ポリシー定義マイグレーション
+-- RLS有効化 + ポリシー定義マイグレーション
 -- Phase 1: deny-by-default + 各テーブル1本のSELECTポリシー（oa_members経由）
--- INSERT/UPDATE/DELETEポリシーはPhase 3で追加（Edge FunctionsはService Roleで動作しRLSをバイパスするため動作に影響なし）
+-- Phase 3: INSERT/UPDATE ポリシー追加 + (select auth.uid()) initplan最適化 + owner自動登録RPC
 
 -- =============================================================
 -- Row Level Security 有効化（全7テーブル）
@@ -15,9 +15,10 @@ alter table public.participants enable row level security;
 alter table public.answers enable row level security;
 
 -- =============================================================
--- 最小SELECTポリシー（oa_members経由でauth.uid()を判定）
+-- SELECTポリシー（oa_members経由でauth.uid()を判定）
 -- ポリシー名: <table>_oa_member_select で統一
 -- to authenticated を指定（未認証ユーザーはdeny-by-default）
+-- (select auth.uid()) でinitplan最適化（行ごと再評価を避ける）
 -- =============================================================
 
 -- oa_configs: 自分がoa_membersに存在するOAのみ
@@ -29,7 +30,7 @@ create policy oa_configs_oa_member_select
     exists (
       select 1 from public.oa_members m
       where m.oa_config_id = oa_configs.id
-        and m.auth_user_id = auth.uid()
+        and m.auth_user_id = (select auth.uid())
     )
   );
 
@@ -38,7 +39,7 @@ create policy oa_members_oa_member_select
   on public.oa_members
   for select
   to authenticated
-  using (auth_user_id = auth.uid());
+  using (auth_user_id = (select auth.uid()));
 
 -- events: 自テーブルのoa_config_id経由でoa_membersと結合
 create policy events_oa_member_select
@@ -49,7 +50,7 @@ create policy events_oa_member_select
     exists (
       select 1 from public.oa_members m
       where m.oa_config_id = events.oa_config_id
-        and m.auth_user_id = auth.uid()
+        and m.auth_user_id = (select auth.uid())
     )
   );
 
@@ -63,7 +64,7 @@ create policy event_platform_urls_oa_member_select
       select 1 from public.events e
       join public.oa_members m on m.oa_config_id = e.oa_config_id
       where e.id = event_platform_urls.event_id
-        and m.auth_user_id = auth.uid()
+        and m.auth_user_id = (select auth.uid())
     )
   );
 
@@ -76,7 +77,7 @@ create policy line_users_oa_member_select
     exists (
       select 1 from public.oa_members m
       where m.oa_config_id = line_users.oa_config_id
-        and m.auth_user_id = auth.uid()
+        and m.auth_user_id = (select auth.uid())
     )
   );
 
@@ -91,7 +92,7 @@ create policy participants_oa_member_select
       join public.events e on e.id = epu.event_id
       join public.oa_members m on m.oa_config_id = e.oa_config_id
       where epu.id = participants.event_platform_url_id
-        and m.auth_user_id = auth.uid()
+        and m.auth_user_id = (select auth.uid())
     )
   );
 
@@ -107,6 +108,162 @@ create policy answers_oa_member_select
       join public.events e on e.id = epu.event_id
       join public.oa_members m on m.oa_config_id = e.oa_config_id
       where p.id = answers.participant_id
-        and m.auth_user_id = auth.uid()
+        and m.auth_user_id = (select auth.uid())
     )
   );
+
+-- =============================================================
+-- Phase 3: 書込ポリシー（INSERT / UPDATE）
+-- ポリシー名: <table>_oa_member_<op> で統一
+-- to authenticated / using + with check = oa_members existsチェーン（同形）
+-- DELETE ポリシーは作らない（deny-by-default維持。Phase 3 UIに削除操作なし）
+-- answers / line_users / oa_members には書込ポリシーを追加しない
+--   (answers/line_users → service role の Edge Functions のみ書込)
+--   (oa_members → RPC経由のみ登録。直接INSERT権限は authenticated に与えない)
+-- =============================================================
+
+-- oa_configs: owner/co-owner が自OAの設定を更新できる
+create policy oa_configs_oa_member_update
+  on public.oa_configs
+  for update
+  to authenticated
+  using (
+    exists (
+      select 1 from public.oa_members m
+      where m.oa_config_id = oa_configs.id
+        and m.auth_user_id = (select auth.uid())
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.oa_members m
+      where m.oa_config_id = oa_configs.id
+        and m.auth_user_id = (select auth.uid())
+    )
+  );
+
+-- events: 自OAのメンバーがイベントを作成できる
+create policy events_oa_member_insert
+  on public.events
+  for insert
+  to authenticated
+  with check (
+    exists (
+      select 1 from public.oa_members m
+      where m.oa_config_id = events.oa_config_id
+        and m.auth_user_id = (select auth.uid())
+    )
+  );
+
+-- events: 自OAのメンバーがイベントを更新できる
+create policy events_oa_member_update
+  on public.events
+  for update
+  to authenticated
+  using (
+    exists (
+      select 1 from public.oa_members m
+      where m.oa_config_id = events.oa_config_id
+        and m.auth_user_id = (select auth.uid())
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.oa_members m
+      where m.oa_config_id = events.oa_config_id
+        and m.auth_user_id = (select auth.uid())
+    )
+  );
+
+-- event_platform_urls: 自OAのメンバーがURLを追加できる（v1はURL追加のみ。削除ポリシーなし）
+create policy event_platform_urls_oa_member_insert
+  on public.event_platform_urls
+  for insert
+  to authenticated
+  with check (
+    exists (
+      select 1 from public.events e
+      join public.oa_members m on m.oa_config_id = e.oa_config_id
+      where e.id = event_platform_urls.event_id
+        and m.auth_user_id = (select auth.uid())
+    )
+  );
+
+-- participants: 自OAのメンバーが参加者の紐付けを更新できる
+-- with check: 行自体が自OAであること + 紐付け先line_userも同一OAであること（ADMIN-02整合性ガード）
+create policy participants_oa_member_update
+  on public.participants
+  for update
+  to authenticated
+  using (
+    exists (
+      select 1 from public.event_platform_urls epu
+      join public.events e on e.id = epu.event_id
+      join public.oa_members m on m.oa_config_id = e.oa_config_id
+      where epu.id = participants.event_platform_url_id
+        and m.auth_user_id = (select auth.uid())
+    )
+  )
+  with check (
+    -- 行自体が自OAであること（usingと同形）
+    exists (
+      select 1 from public.event_platform_urls epu
+      join public.events e on e.id = epu.event_id
+      join public.oa_members m on m.oa_config_id = e.oa_config_id
+      where epu.id = participants.event_platform_url_id
+        and m.auth_user_id = (select auth.uid())
+    )
+    -- 紐付け先line_userが同一OAに属すること（nullは許可）
+    and (participants.line_user_id is null or exists (
+      select 1 from public.line_users lu
+      join public.event_platform_urls epu on epu.id = participants.event_platform_url_id
+      join public.events e on e.id = epu.event_id
+      where lu.id = participants.line_user_id and lu.oa_config_id = e.oa_config_id
+    ))
+  );
+
+-- =============================================================
+-- Phase 3: owner自動登録RPC
+-- register_owner_by_identity(): auth.identitiesのX screen_nameと
+-- oa_configs.admin_twitter_idを照合し、ownerとして自動登録する
+-- SECURITY DEFINER + search_path='' でauth.identitiesを直接参照（偽装不能）
+-- user_metadataは一切参照しない（T-03-01: 偽装可能なため）
+-- モック経路（emailプロバイダーのみ）は0行を返すだけ（setup-dev.tsが直接oa_membersを投入）
+-- =============================================================
+
+create or replace function public.register_owner_by_identity()
+returns setof uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_screen_name text;
+begin
+  -- X (OAuth 2.0) providerのidentityからscreen_nameを取得（ユーザー書換不可）
+  -- A1: 両キー（user_name / preferred_username）に対応するcoalesceで安全側に倒す
+  select coalesce(
+    i.identity_data ->> 'user_name',
+    i.identity_data ->> 'preferred_username'
+  ) into v_screen_name
+  from auth.identities i
+  where i.user_id = (select auth.uid())
+    and i.provider in ('x', 'twitter')
+  limit 1;
+
+  -- モック経路: email providerのみのユーザーはidentityなしで0行を返す（冪等）
+  if v_screen_name is null then
+    return;
+  end if;
+
+  return query
+  insert into public.oa_members (oa_config_id, auth_user_id, role)
+  select c.id, (select auth.uid()), 'owner'
+  from public.oa_configs c
+  where v_screen_name = any(string_to_array(coalesce(c.admin_twitter_id, ''), ','))
+  on conflict (oa_config_id, auth_user_id) do nothing
+  returning oa_config_id;
+end $$;
+
+revoke all on function public.register_owner_by_identity() from public, anon;
+grant execute on function public.register_owner_by_identity() to authenticated;
