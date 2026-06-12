@@ -35,6 +35,7 @@ import {
   buildQuestionMessage,
   buildRepromptMessages,
 } from "../_shared/confirm/messages.ts";
+import { notifyConfirmUpdate } from "../_shared/notify/notifier.ts";
 
 // Webhookペイロードのzodスキーマ（形状検証のみ）
 const WebhookPayloadSchema = z.object({
@@ -327,6 +328,8 @@ async function handleEvent(
     );
 
     // (a) answer があれば answers へ upsert（DB更新を先 — Pitfall 3）
+    // answerPersistFailed フラグで保存成否を後段（通知判定）で明示化
+    let answerPersistFailed = false;
     if (result.answer) {
       const { error: upsertError } = await supabase
         .from("answers")
@@ -348,6 +351,7 @@ async function handleEvent(
         // WR-02: 保存失敗時は index/status を前進させず、同一質問を再提示して
         // 次の postback でリトライさせる（前進すると回答が恒久的に失われる）
         result = answerPersistFailureResult(current);
+        answerPersistFailed = true;
       }
     }
 
@@ -374,49 +378,70 @@ async function handleEvent(
 
     // (c) reply送信（DB更新後 — Pitfall 3）
     // 1イベントにつきreply呼び出しは最大1回（replyTokenは1回限り — Pitfall 3）
-    if (result.reply === "none") {
-      return;
-    }
-
-    const token = await getToken();
-    if (!token) {
-      console.error(
-        `webhook: token unavailable for reply participant_id=${participantId}`,
-      );
-      return;
-    }
-
-    let messages: object[];
-    if (result.reply === "next_question") {
-      const nextQ = oaConfig.questions[result.nextIndex];
-      if (!nextQ) {
+    // 早期 return を取り除き、reply の成否に関わらず (d) 通知呼び出しへ到達させる
+    if (result.reply !== "none") {
+      const token = await getToken();
+      if (!token) {
         console.error(
-          `webhook: next question not found index=${result.nextIndex}`,
+          `webhook: token unavailable for reply participant_id=${participantId}`,
         );
-        return;
+        // token 取得失敗でも通知へ到達するためここでは return しない
+      } else {
+        let messages: object[] | null = null;
+        if (result.reply === "next_question") {
+          const nextQ = oaConfig.questions[result.nextIndex];
+          if (!nextQ) {
+            console.error(
+              `webhook: next question not found index=${result.nextIndex}`,
+            );
+          } else {
+            messages = [buildQuestionMessage(nextQ, participantId)];
+          }
+        } else if (result.reply === "completion") {
+          messages = buildCompletionMessages();
+        } else {
+          // reprompt: 現在の質問を再送
+          const currentQ = oaConfig.questions[current.index];
+          if (!currentQ) {
+            console.error(
+              `webhook: reprompt question not found index=${current.index}`,
+            );
+          } else {
+            messages = buildRepromptMessages(currentQ, participantId);
+          }
+        }
+
+        if (messages) {
+          try {
+            await replyMessage(token, event.replyToken, messages);
+          } catch (err) {
+            // reply失敗はログのみ（DB更新済みなので次のユーザーメッセージで再誘導が回復経路 — Pitfall 3）
+            console.error(
+              `webhook: replyMessage failed participant_id=${participantId}: ${(err as Error).message}`,
+            );
+          }
+        }
       }
-      messages = [buildQuestionMessage(nextQ, participantId)];
-    } else if (result.reply === "completion") {
-      messages = buildCompletionMessages();
-    } else {
-      // reprompt: 現在の質問を再送
-      const currentQ = oaConfig.questions[current.index];
-      if (!currentQ) {
-        console.error(
-          `webhook: reprompt question not found index=${current.index}`,
-        );
-        return;
-      }
-      messages = buildRepromptMessages(currentQ, participantId);
     }
 
-    try {
-      await replyMessage(token, event.replyToken, messages);
-    } catch (err) {
-      // reply失敗はログのみ（DB更新済みなので次のユーザーメッセージで再誘導が回復経路 — Pitfall 3）
-      console.error(
-        `webhook: replyMessage failed participant_id=${participantId}: ${(err as Error).message}`,
-      );
+    // (d) owner/co-owner 通知（NOTIF-01 — reply 送信の後 — Pitfall 3）
+    // 失敗しても 200 契約・reply に影響させない（T-04-07）
+    // 保存成功の場合のみ通知（answerPersistFailed=false）— Pitfall 9 対応
+    if (result.answer && !answerPersistFailed) {
+      try {
+        const notifyKind = result.reply === "completion" ? "completion" : "answer";
+        const r = await notifyConfirmUpdate(supabase, getToken, {
+          participantId,
+          kind: notifyKind,
+        });
+        console.log(
+          `webhook: notify kind=${r.kind} inWindow=${r.inWindow} sent=${r.sent} failed=${r.failed} skipped=${r.skippedNoLineId}`,
+        );
+      } catch (err) {
+        console.error(
+          `webhook: notify failed participant_id=${participantId}: ${(err as Error).message}`,
+        );
+      }
     }
     return;
   }
