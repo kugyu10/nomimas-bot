@@ -16,6 +16,12 @@ create table public.oa_configs (
   created_at timestamptz not null default now()
 );
 
+-- WR-07: line_channel_id の重複を制約で防ぐ（部分unique — null は複数可）
+-- 重複行があると webhook の .single() が恒久的に失敗し全イベントが silent drop するため
+create unique index oa_configs_line_channel_id_key
+  on public.oa_configs (line_channel_id)
+  where line_channel_id is not null;
+
 -- OA管理者メンバー（owner / co-owner）
 -- OA-02: 複数のLINE OAを1つの管理画面で管理できる（権限: root/owner/co-ownerの3段階）
 -- rootはauth.usersのapp_metadataで表現予定（Phase 3/4で本格運用）
