@@ -172,16 +172,16 @@ describe("eventFormSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("default の confirm_days_before は 3", () => {
+  it("confirm_days_before が未指定（undefined）の場合 reject する（form の defaultValues で 3 を与える設計）", () => {
+    // schema は .default() を持たない（RHF zodResolver との型互換のため）
+    // form の defaultValues: { confirm_days_before: 3 } で 3 日前を初期値として与える
     const result = eventFormSchema.safeParse({
       title: "テスト",
       event_date: "2026-06-15",
       platform_urls: [{ platform: "twipla", url: "https://twipla.jp/events/123" }],
+      // confirm_days_before 未指定
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.confirm_days_before).toBe(3);
-    }
+    expect(result.success).toBe(false);
   });
 });
 

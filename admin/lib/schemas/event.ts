@@ -56,10 +56,9 @@ export const eventFormSchema = z.object({
     .number()
     .int()
     .refine(
-      (n): n is ConfirmDays => (CONFIRM_DAYS_OPTIONS as readonly number[]).includes(n),
+      (n): boolean => (CONFIRM_DAYS_OPTIONS as readonly number[]).includes(n),
       { message: "confirm_days_before は 1/2/3/5/7 のいずれかを選択してください" }
-    )
-    .default(3),
+    ),
   platform_urls: z
     .array(platformUrlSchema)
     .min(1, "プラットフォームURLを1件以上入力してください"),
