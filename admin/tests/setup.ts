@@ -1,6 +1,12 @@
 // admin/tests/setup.ts
 // RLS_TEST=1 のときのみ env.dev をロードし、prod 安全弁として ref を確認する
 // ワークツリー対応: env.dev が相対パスにない場合は env vars が既にセットされていると仮定
+
+// IPv4 優先 DNS: Supabase Auth の IPv6 NAT64 timeout 回避（Node.js 17+ / vitest 実行環境）
+// 並列テスト実行時に undici が 64:ff9b::/96 (NAT64) 経由で接続し 10s timeout になる問題を解消
+import dns from "node:dns";
+dns.setDefaultResultOrder("ipv4first");
+
 if (process.env.RLS_TEST === "1") {
   // env.dev の候補パスを順に試す
   // 1. 通常実行: admin/../env.dev（モノリポルートに env.dev がある想定）
