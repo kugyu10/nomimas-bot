@@ -42,7 +42,7 @@ import { createEvent, updateEvent } from "@/lib/actions/events";
 import type { PlatformUrlRow } from "@/lib/data/events";
 
 // ダイアログに必要なイベント詳細の型
-interface EventDetailProp {
+export interface EventDetailProp {
   id: string;
   title: string;
   event_date: string | null;
@@ -143,7 +143,8 @@ export function EventFormDialog({
           setError(result.error ?? "保存に失敗しました。入力内容を確認してもう一度お試しください");
           return;
         }
-        reset(defaultValues);
+        // 編集モードでは保存値を維持（defaultValues に戻すと再オープン時に空フォームになる）
+        reset(isEdit ? values : defaultValues);
         onOpenChange(false);
         onSuccess?.();
       } catch {
