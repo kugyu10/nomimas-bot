@@ -402,3 +402,69 @@ describe("co-owner スコープ: user2 は dev-oa の co-owner", () => {
     expect(ids).toContain(OA2_ID);
   });
 });
+
+// ===========================================================
+// RPC: register_owner_by_identity — ケース非区別照合（03-REVIEW WR-06）
+// X の screen_name は case-insensitive。identity が "CaseTest_Owner" を返し
+// 管理者が "casetest_owner" と入力していても owner 登録が成立すること
+// ===========================================================
+describe("RPC: register_owner_by_identity は screen_name をケース非区別で照合する", () => {
+  const PROVIDER_ID = "wr06-case-test";
+
+  it("identity=Mixed-case / admin_twitter_id=lowercase でも owner 登録される", async () => {
+    // 事前状態の保存（postgres ロール）
+    const original =
+      await sql`select admin_twitter_id from public.oa_configs where id = ${OA2_ID}`;
+    const originalAdminTwitterId = original[0].admin_twitter_id;
+
+    try {
+      // 1. OA-2 の admin_twitter_id を小文字で設定
+      await sql`
+        update public.oa_configs
+        set admin_twitter_id = 'casetest_owner'
+        where id = ${OA2_ID}
+      `;
+
+      // 2. user1 に X identity（混在ケースの user_name）を一時付与
+      await sql`
+        insert into auth.identities
+          (id, provider_id, user_id, identity_data, provider,
+           last_sign_in_at, created_at, updated_at)
+        values
+          (gen_random_uuid(), ${PROVIDER_ID}, ${user1Id},
+           ${JSON.stringify({ sub: PROVIDER_ID, user_name: "CaseTest_Owner" })}::jsonb,
+           'x', now(), now(), now())
+      `;
+
+      // 3. RPC 実行 → OA-2 が返る（lower() 両辺照合）
+      const rows = await asUser(sql, user1Id, (tx) =>
+        tx`select * from public.register_owner_by_identity()`,
+      );
+      const returnedIds = rows.map((r) => r.register_owner_by_identity);
+      expect(returnedIds).toContain(OA2_ID);
+
+      // 4. oa_members に owner 行が作成されている
+      const members = await sql`
+        select role from public.oa_members
+        where oa_config_id = ${OA2_ID} and auth_user_id = ${user1Id}
+      `;
+      expect(members.length).toBe(1);
+      expect(members[0].role).toBe("owner");
+    } finally {
+      // クリーンアップ（postgres ロール — 冪等）
+      await sql`
+        delete from public.oa_members
+        where oa_config_id = ${OA2_ID} and auth_user_id = ${user1Id}
+      `;
+      await sql`
+        delete from auth.identities
+        where provider_id = ${PROVIDER_ID} and provider = 'x'
+      `;
+      await sql`
+        update public.oa_configs
+        set admin_twitter_id = ${originalAdminTwitterId}
+        where id = ${OA2_ID}
+      `;
+    }
+  });
+});

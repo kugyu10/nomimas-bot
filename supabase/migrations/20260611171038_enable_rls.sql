@@ -260,7 +260,11 @@ begin
   insert into public.oa_members (oa_config_id, auth_user_id, role)
   select c.id, (select auth.uid()), 'owner'
   from public.oa_configs c
-  where v_screen_name = any(string_to_array(coalesce(c.admin_twitter_id, ''), ','))
+  -- WR-06: X の screen_name は大文字小文字非区別（X は表示ケースを保持して返す）。
+  -- 両辺 lower() で照合しないと管理者の入力ケース次第で正規ownerが /no-access に落ちる
+  where lower(v_screen_name) = any(
+    string_to_array(lower(coalesce(c.admin_twitter_id, '')), ',')
+  )
   on conflict (oa_config_id, auth_user_id) do nothing
   returning oa_config_id;
 end $$;
