@@ -27,7 +27,7 @@ export default function LoginPage() {
       },
     });
     if (error) {
-      setError("ログインが必要です");
+      setError("ログインに失敗しました。もう一度お試しください");
       setLoading(false);
     }
     // On success, browser is redirected by Supabase
@@ -40,7 +40,7 @@ export default function LoginPage() {
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
-      setError("ログインが必要です");
+      setError("メールアドレスまたはパスワードが正しくありません");
       setLoading(false);
       return;
     }

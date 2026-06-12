@@ -277,10 +277,9 @@ export function LinkingTab({
                       </PopoverContent>
                     </Popover>
 
-                    {/* 紐付けボタン（UI-SPEC: accent — zinc-900 primary） */}
+                    {/* 紐付けボタン（UI-SPEC: accent — variant="default"） */}
                     <Button
                       size="sm"
-                      className="bg-zinc-900 text-white hover:bg-zinc-700"
                       disabled={!selectedLineUser[participant.id] || isPending}
                       onClick={() => handleLink(participant.id)}
                     >

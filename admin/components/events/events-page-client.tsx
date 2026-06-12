@@ -28,17 +28,16 @@ export function EventsPageClient({ events }: EventsPageClientProps) {
 
   return (
     <div className="space-y-4">
-      {/* ページヘッダー: タイトル + + イベントを作成ボタン */}
+      {/* ページヘッダー: タイトル・イベントを作成ボタン */}
       <div className="flex items-center justify-between">
         {/* UI-SPEC Typography: Heading 20px/600 */}
         <h1 className="text-xl font-semibold">イベント一覧</h1>
-        {/* UI-SPEC: "+ イベントを作成" accent button */}
+        {/* UI-SPEC: "イベントを作成" CTA button */}
         <Button
           onClick={() => setDialogOpen(true)}
-          className="bg-zinc-900 text-white hover:bg-zinc-800"
         >
           <PlusIcon className="size-4 mr-1" />
-          + イベントを作成
+          イベントを作成
         </Button>
       </div>
 

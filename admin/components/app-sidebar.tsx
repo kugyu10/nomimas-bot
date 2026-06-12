@@ -33,8 +33,8 @@ export function AppSidebar() {
                     href={item.href}
                     className={cn(
                       "flex items-center gap-2",
-                      // UI-SPEC: アクティブ項目は zinc-900 左ボーダー + テキスト（Accent 用途 2）
-                      isActive && "border-l-2 border-zinc-900 pl-2 text-zinc-900 font-medium",
+                      // UI-SPEC: アクティブ項目は primary 左ボーダー + テキスト（Accent 用途 2）
+                      isActive && "border-l-2 border-primary pl-2 text-primary",
                     )}
                   >
                     <item.icon className="h-4 w-4" />
