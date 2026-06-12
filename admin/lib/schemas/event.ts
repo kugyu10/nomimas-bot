@@ -48,7 +48,17 @@ export const eventFormSchema = z.object({
     /^\d{4}-\d{2}-\d{2}$/,
     "開催日は YYYY-MM-DD 形式で入力してください"
   ),
-  meeting_time: z.string().optional(),
+  // WR-05: HH:mm 形式を強制（空文字 = 未入力は許容）。
+  // composeMeetingAt が文字列を timestamptz リテラルへ直接補間するため、
+  // UI の <input type="time"> に頼らずサーバー側再検証でも形式を保証する
+  meeting_time: z
+    .union([
+      z
+        .string()
+        .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "集合時刻は HH:mm 形式で入力してください"),
+      z.literal(""),
+    ])
+    .optional(),
   meeting_place: z.string().optional(),
   fee: z.string().optional(),
   venue_info: z.string().optional(),

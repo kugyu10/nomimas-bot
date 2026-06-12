@@ -165,6 +165,26 @@ describe("eventFormSchema", () => {
     }
   });
 
+  // WR-05: meeting_time の形式検証
+  it("meeting_time が HH:mm 形式なら accept する（境界値含む）", () => {
+    for (const t of ["00:00", "09:05", "18:30", "23:59"]) {
+      const result = eventFormSchema.safeParse({ ...validBase, meeting_time: t });
+      expect(result.success, `meeting_time=${t} should pass`).toBe(true);
+    }
+  });
+
+  it("meeting_time が空文字（未入力）なら accept する", () => {
+    const result = eventFormSchema.safeParse({ ...validBase, meeting_time: "" });
+    expect(result.success).toBe(true);
+  });
+
+  it("meeting_time が不正形式なら reject する", () => {
+    for (const t of ["garbage", "24:00", "9:30", "18:60", "18:3", "1830", " 18:30"]) {
+      const result = eventFormSchema.safeParse({ ...validBase, meeting_time: t });
+      expect(result.success, `meeting_time=${t} should fail`).toBe(false);
+    }
+  });
+
   it("platform_urls に無効な URL が含まれる場合 reject する", () => {
     const result = eventFormSchema.safeParse({
       ...validBase,
