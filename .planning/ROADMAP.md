@@ -115,8 +115,22 @@ Plans:
   3. rootユーザーは全OA・全イベント・全データを横断閲覧できる（OA-02のroot権限部分の完成。owner/co-ownerスコープとの権限差がテストで検証できる）
   4. 実Twipla URLを使ったE2E通し（スクレイピング→手動紐付け→配信→1問1答回答→保存→管理者通知→管理画面で確認）が成功する
 
-**Plans**: TBD
+**Plans**: 4 plans
 **UI hint**: yes
+
+Plans:
+**Wave 1**
+
+- [ ] 04-01-PLAN.md — スキーマ拡張（line_user_id/root_users/templates/notification_logs + is_root() OR拡張）+ notify純関数 + [BLOCKING] dev再適用 [Wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion — 並列実行可)*
+
+- [ ] 04-02-PLAN.md — notifier本体 + webhook/scraper結線 + デプロイ + 実Twipla全鎖E2E（窓内/窓外対比） [Wave 2]
+- [ ] 04-03-PLAN.md — 質問テンプレート（schema/data/action/UI）+ RLS root軸・テンプレートテスト（OA-03/OA-02 root） [Wave 2]
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 04-04-PLAN.md — Phase 3 UIレビュー優先修正（top-3+軽微）+ フェーズゲート（成功条件1-4一括検証） [Wave 3]
 
 ## Progress
 
@@ -127,7 +141,7 @@ Plans:
 | 1. 基盤構築 + スクレイピング検証 | 3/3 | Complete   | 2026-06-11 |
 | 2. LINE Botコア機能 | 4/4 | Complete   | 2026-06-11 |
 | 3. 管理画面 | 5/5 | Complete   | 2026-06-12 |
-| 4. 通知 + 統合仕上げ | 0/? | Not started | - |
+| 4. 通知 + 統合仕上げ | 0/4 | Not started | - |
 
 ## Coverage
 
