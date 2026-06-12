@@ -125,8 +125,8 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion — 並列実行可)*
 
-- [ ] 04-02-PLAN.md — notifier本体 + webhook/scraper結線 + デプロイ + 実Twipla全鎖E2E（窓内/窓外対比） [Wave 2]
-- [ ] 04-03-PLAN.md — 質問テンプレート（schema/data/action/UI）+ RLS root軸・テンプレートテスト（OA-03/OA-02 root） [Wave 2]
+- [x] 04-02-PLAN.md — notifier本体 + webhook/scraper結線 + デプロイ + 実Twipla全鎖E2E（窓内/窓外対比） [Wave 2]
+- [x] 04-03-PLAN.md — 質問テンプレート（schema/data/action/UI）+ RLS root軸・テンプレートテスト（OA-03/OA-02 root） [Wave 2]
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -141,7 +141,7 @@ Plans:
 | 1. 基盤構築 + スクレイピング検証 | 3/3 | Complete   | 2026-06-11 |
 | 2. LINE Botコア機能 | 4/4 | Complete   | 2026-06-11 |
 | 3. 管理画面 | 5/5 | Complete   | 2026-06-12 |
-| 4. 通知 + 統合仕上げ | 1/4 | In Progress|  |
+| 4. 通知 + 統合仕上げ | 3/4 | In Progress|  |
 
 ## Coverage
 
