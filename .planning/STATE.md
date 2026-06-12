@@ -82,11 +82,17 @@ None yet.
 
 ## Deferred Items
 
-Items acknowledged and carried forward from previous milestone close:
+Items acknowledged and deferred at milestone close on 2026-06-13:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
+| uat_gap | 01-HUMAN-UAT (LINEコンソールWebhook URL登録) | partial | 2026-06-13 |
+| uat_gap | 02-HUMAN-UAT (実LINE最終確認フロー体験) | partial | 2026-06-13 |
+| uat_gap | 03-HUMAN-UAT (実X OAuth/実ブラウザ/D&D) | partial | 2026-06-13 |
+| uat_gap | 04-HUMAN-UAT (実LINE通知/テンプレ操作/Vercel) | partial | 2026-06-13 |
+| verification | 01〜04 VERIFICATION (status: human_needed — 自動must-haves全パス) | human_needed | 2026-06-13 |
 | v2 | LINK-01 / DATA-01 / REMIND-01 | Deferred to v2 | 2026-06-12 |
+| prod | prod環境構築チェックリスト（v1.0-MILESTONE-AUDIT.md参照） | pending | 2026-06-13 |
 
 ## Session Continuity
 

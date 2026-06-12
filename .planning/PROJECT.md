@@ -1,5 +1,15 @@
 # nomimas
 
+## Current State
+
+**v1.0 MVP — SHIPPED 2026-06-13**（dev環境で全12要件機械検証済み）。
+残作業は HUMAN-UAT（実LINE受信・実X OAuthログイン・実ブラウザ操作）・Vercelデプロイ・prod環境構築のみ。
+詳細: .planning/MILESTONES.md / .planning/v1.0-MILESTONE-AUDIT.md
+
+## Next Milestone Goals
+
+未定 — `/gsd:new-milestone` で定義。候補: HUMAN-UAT結果の反映、prod構築・本番リリース、v2要件（LINK-01/DATA-01/REMIND-01）
+
 ## What This Is
 
 Twiplaで参加表明したオフ会参加者に対し、LINEで最終確認メッセージ（イベント情報＋定型質問）を自動配信し、回答を収集するツール。月数回・10〜30人規模のオフ会を主催する個人主催者（owner/co-owner）向け。現在TwitterのDMで一人ずつ手作業送信している最終確認を、Twiplaスクレイピング→LINE配信→1問1答回答収集→管理画面確認のフローで完全自動化する。
