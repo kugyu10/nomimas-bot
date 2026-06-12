@@ -30,7 +30,13 @@ findings:
   warning: 7
   info: 8
   total: 17
-status: issues_found
+fixes:
+  fixed_at: 2026-06-12T15:30:00Z
+  fixed: 13
+  deferred: 4
+  fixed_ids: [CR-01, CR-02, WR-01, WR-02, WR-03, WR-04, WR-05, WR-06, WR-07, IN-02, IN-03, IN-04, IN-08]
+  deferred_ids: [IN-01, IN-05, IN-06, IN-07]
+status: fixed
 ---
 
 # Phase 2: Code Review Report
@@ -38,7 +44,7 @@ status: issues_found
 **Reviewed:** 2026-06-11T23:44:53Z
 **Depth:** standard
 **Files Reviewed:** 21
-**Status:** issues_found
+**Status:** fixed（Critical/Warning 全9件 + Info 4件を修正済み。Info 4件は理由付きで保留 — 下記 Fix Status 参照）
 
 ## Summary
 
@@ -204,6 +210,34 @@ create unique index oa_configs_line_channel_id_key
 **File:** `scripts/db/sql.ts:48`
 **Issue:** `aws-1-ap-northeast-1.pooler.supabase.com` がハードコードされており、プロジェクトのリージョン移動や Supabase 側のプーラーホスト変更で全スクリプトが壊れる。dev 専用スクリプトのため実害は小さい。
 **Fix:** 名前付き定数として切り出し（`SUPABASE_POOLER_HOST`）、env での上書きを許容する。
+
+---
+
+## Fix Status (2026-06-12 gsd-code-fixer)
+
+修正スコープ: Critical + Warning 全件 + ゼロリスクの Info。各修正は1コミット=1指摘でアトミックにコミット。
+検証: unit 82件 green / E2E（dev実機）87件 green / cron→message-sender 実機200確認（WR-01変更後）。
+
+| ID | Status | Commit | 内容 |
+|----|--------|--------|------|
+| CR-01 | fixed | 40b2136 | `_shared/confirm/format.ts` 新設。meeting_at を Asia/Tokyo（例: "6/15 18:00"）、event_date を「YYYY年M月D日」に整形してから EventInfo に渡す。UTC ISO入力→JST出力のユニットテスト8件追加 |
+| CR-02 | fixed | 50c4274 | follow upsert ペイロードから display_name を除外。再フォローで display_name が保持されるE2Eテスト追加（dev実機 pass） |
+| WR-01 | fixed | 2e0346f | message-sender 冒頭で x-cron-key ヘッダ ↔ 関数シークレット CRON_FUNCTION_KEY を照合（未設定500 / 不一致401）。Vault 'cron_shared_secret' を setup-dev.ts が投入し cron ジョブヘッダに追加。anonキーのみ→401・cron経路→200 を実機確認 |
+| WR-02 | fixed | c943da9 | answers UPSERT 失敗時は `answerPersistFailureResult()`（state.ts 純関数）で index/status を前進させず reprompt にフォールバック。ユニットテスト2件追加 |
+| WR-03 | fixed | 369fba8 | `event.isRedelivery === true` の postback を処理前にスキップ（ログ+200）。再配達が再回答を巻き戻さないE2Eステップ(d2)追加 |
+| WR-04 | fixed | 0a65caf | MessageEventSchema の `message.type` を text 限定から任意typeに緩和（text は optional → null）。スタンプ/画像のユニットテスト2件 + スタンプE2Eステップ(f2)追加 |
+| WR-05 | fixed | dea8a83 | participants select に `event_platform_urls(events(oa_config_id))` をネストし、participant 所属イベント側 OA も oaConfig.id と照合。cross-OA 拒否E2Eテスト追加（dev実機 pass） |
+| WR-06 | fixed | b166e80 | LINE_CHANNEL_ID 未設定を署名検証後・JSON検証前に 500（"server configuration error"）でガード。順序契約は維持 |
+| WR-07 | fixed | a37c408 | `20260611171037` マイグレーションに部分unique index `oa_configs_line_channel_id_key` をin-place追加。`db reset --linked` 後、重複INSERTが実機で拒否されることを確認 |
+| IN-01 | deferred | — | 決定的 retry key は呼び出し側API変更（participant_id+配信日ベースのキー設計）を伴うため自動修正対象外。Phase 3 で対応推奨 |
+| IN-02 | fixed | a9cef96 | job_run_details の型注釈を SELECT 列（jobid/runid/status/return_message/start_time/end_time）に一致させ、2つ目のセクション番号を (4) に修正 |
+| IN-03 | fixed | 2a42bf5 | 未使用フィクスチャ eventC を削除し「(c) は eventA を共用」コメントに統一 |
+| IN-04 | fixed | 4ed5d16 | handleEvent の supabase 引数を `any` から `SupabaseClient` 型に変更（deno check / lint green） |
+| IN-05 | deferred | — | failed と skippedNoQuestions の分離はレスポンス形状変更（E2Eアサーション影響）のためゼロリスク扱いせず保留。v1 運用上の実害は小 |
+| IN-06 | deferred | — | レビュー自身が「v1規模では許容」と判定済み。対象50件超の規模になった時点でタイムアウト引き上げ/早期202化を検討 |
+| IN-07 | deferred | — | ドキュメント整備（キーローテーション手順）+ verify-cron の FAIL 条件昇格は運用設計判断を伴うため保留。なお WR-01 で cron 認可は専用シークレット化済みで、anonキーローテーション単独で配信が壊れる経路は残るが setup-dev.ts 再実行で復旧する |
+
+_Fixed: 2026-06-12 / Fixer: Claude (gsd-code-fixer)_
 
 ---
 
