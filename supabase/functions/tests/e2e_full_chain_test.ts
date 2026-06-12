@@ -24,6 +24,7 @@
  */
 
 import {
+  AssertionError,
   assertEquals,
   assertExists,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
@@ -510,6 +511,10 @@ Deno.test({
         assertEquals(restoredEventDate, expectedDate, "teardown: event_date が current_date+3 に復元されていること");
         assertEquals(restoredStatus, "pending", "teardown: seed participant が pending に復元されていること");
       } catch (teardownErr) {
+        // 04-REVIEW WR-05: teardown 検証の AssertionError は握りつぶさず再throw する。
+        // 復元失敗（UPDATE 0行など）を黙殺すると次回実行が壊れた seed 状態から始まる。
+        // クリーンアップ自体の例外（接続断など）は従来どおりログのみ
+        if (teardownErr instanceof AssertionError) throw teardownErr;
         console.error(`teardown error: ${(teardownErr as Error).message}`);
       } finally {
         await sql.end();
