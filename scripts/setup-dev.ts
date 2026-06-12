@@ -70,6 +70,18 @@ if (!mockUserPassword) {
   Deno.exit(1);
 }
 
+// 04-REVIEW WR-03: GoTrue admin API 経路にも dev ref 安全弁を適用する。
+// connectDev()（SQL 経路）の T-02-02 ガードは SUPABASE_URL を検証しないため、
+// env.dev に誤って prod の SUPABASE_URL/サービスキーが混入していても SQL ガードを
+// 通過し、prod auth インスタンスにモックユーザーを作成してしまう。
+// admin API 呼び出し前に URL が dev ref と一致することを強制する。
+if (ref !== "cmsxvxtcdniqgvhxjqri" || !supabaseUrl.includes(ref)) {
+  console.error(
+    `[setup-dev] ABORT: SUPABASE_URL (${supabaseUrl}) が dev ref と一致しません。本スクリプトは dev 専用です。`,
+  );
+  Deno.exit(1);
+}
+
 // =============================================================
 // GoTrue admin REST API ヘルパー（サービスロールキーを使用 — スクリプト領域のみ）
 // T-03-04: サービスロールキーはログ出力・コミット禁止
