@@ -16,7 +16,8 @@ Twiplaの参加者リスト取得から最終確認の配信・回答収集ま�
 
 - **EVENT-02** — Phase 1で実証（Twiplaスクレイパー: フィクスチャTDD + 実URL + dev DB保存まで機械検証）
 - **LINE-01 / LINE-02 / LINE-03** — Phase 2で実証（pg_cron配信→1問1答→answers保存のフルE2E。実LINE受信体験のみHUMAN-UAT待ち）
-- **AUTH-01 / EVENT-01 / ADMIN-01 / ADMIN-02 / OA-01 / OA-02** — Phase 3で実証（モック認証+RLSマトリクス19テスト・イベントCRUD・紐付け・回答状況・OA設定。実X OAuthブラウザ往復のみHUMAN-UAT待ち）
+- **AUTH-01 / EVENT-01 / ADMIN-01 / ADMIN-02 / OA-01 / OA-02** — Phase 3で実証（モック認証+RLSマトリクス・イベントCRUD・紐付け・回答状況・OA設定。実X OAuthブラウザ往復のみHUMAN-UAT待ち）
+- **NOTIF-01 / OA-03（+ OA-02 root完成）** — Phase 4で実証（イベント駆動通知・窓判定対比・テンプレート・root横断RLS・実Twipla全鎖E2E。実LINE受信/VercelのみHUMAN-UAT待ち）
 
 ### Active
 
@@ -28,10 +29,10 @@ Twiplaの参加者リスト取得から最終確認の配信・回答収集ま�
 - [x] **LINE-03**: 参加者の回答がSupabaseに保存される
 - [x] **ADMIN-01**: 管理者は回答状況（誰が回答済み・未回答）を一覧確認できる
 - [x] **ADMIN-02**: 管理者はLINEユーザーとイベントプラットフォームの参加者名を手動で紐付けられる
-- [ ] **NOTIF-01**: 開催2日前以降、メンバーの出欠・最終確認に更新があった際、owner/co-ownerにLINEで都度通知する
+- [x] **NOTIF-01**: 開催2日前以降、メンバーの出欠・最終確認に更新があった際、owner/co-ownerにLINEで都度通知する
 - [x] **OA-01**: LINE OAごとに定型文・質問内容・管理者Twitter IDを設定できる
 - [x] **OA-02**: 複数のLINE OAを1つの管理画面で管理できる（権限: root/owner/co-ownerの3段階）
-- [ ] **OA-03**: 定型質問のテンプレートを保存・再利用できる
+- [x] **OA-03**: 定型質問のテンプレートを保存・再利用できる
 
 ### Out of Scope
 
@@ -111,4 +112,4 @@ Twiplaの参加者リスト取得から最終確認の配信・回答収集ま�
 | dev/prodでSupabaseプロジェクト分離 | 本番データに影響を与えずに検証 | — Pending |
 
 ---
-*Last updated: 2026-06-12 after Phase 3 completion（管理画面 — Next.js 16 admin/ がモック認証+RLS実効で全操作UI完結）*
+*Last updated: 2026-06-13 after Phase 4 completion（v1全12要件の機械検証完了 — 本番化はHUMAN-UAT+Vercelデプロイのみ）*
