@@ -25,10 +25,10 @@ export function OaSelector({ myOas, selectedOaId }: OaSelectorProps) {
   const router = useRouter();
 
   function handleChange(value: string) {
-    // cookie に書き込む（path=/ で全ルートに適用）
-    document.cookie = `${COOKIE_KEY}=${value}; path=/; max-age=31536000; SameSite=Lax`;
-    // localStorage にも書き込む（UI-SPEC Interaction Contract）
-    localStorage.setItem(COOKIE_KEY, value);
+    // cookie に書き込む（path=/ で全ルートに適用。https では Secure を付与 — IN-03）
+    // 注: localStorage への複製は読み手が存在しない dead write だったため削除（IN-03）
+    const secure = window.location.protocol === "https:" ? "; Secure" : "";
+    document.cookie = `${COOKIE_KEY}=${value}; path=/; max-age=31536000; SameSite=Lax${secure}`;
     // RSC の再フェッチを起動（UI-SPEC: router.refresh()）
     router.refresh();
   }
