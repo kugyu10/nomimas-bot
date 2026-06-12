@@ -63,6 +63,27 @@ function normalizeAdminTwitterId(raw: string): string {
  * - completion_message: nullable 文字列（完了メッセージ）
  * - questions: questionSchema の配列
  */
+/**
+ * 質問配列スキーマ（superRefine id 一意性 + LINE 上限込み）
+ * template.ts から再利用するため export する（T-03-14 同型性維持）
+ */
+export const questionsSchema = z
+  .array(questionSchema)
+  .max(MAX_QUESTIONS, `質問は${MAX_QUESTIONS}件以内で設定してください`)
+  .superRefine((qs, ctx) => {
+    const seen = new Set<string>();
+    qs.forEach((q, index) => {
+      if (seen.has(q.id)) {
+        ctx.addIssue({
+          code: "custom",
+          message: "質問IDが重複しています",
+          path: [index, "id"],
+        });
+      }
+      seen.add(q.id);
+    });
+  });
+
 export const oaSettingsSchema = z.object({
   name: z.string().min(1, "OA名は必須です"),
   admin_twitter_id: z
@@ -72,22 +93,7 @@ export const oaSettingsSchema = z.object({
   completion_message: z.string().nullable().optional(),
   // WR-07: 件数上限 + id 一意性（重複 id は answers の question_key Map と
   // bot 側1問1答の進行キーを衝突させ、回答が黙って collapse する）
-  questions: z
-    .array(questionSchema)
-    .max(MAX_QUESTIONS, `質問は${MAX_QUESTIONS}件以内で設定してください`)
-    .superRefine((qs, ctx) => {
-      const seen = new Set<string>();
-      qs.forEach((q, index) => {
-        if (seen.has(q.id)) {
-          ctx.addIssue({
-            code: "custom",
-            message: "質問IDが重複しています",
-            path: [index, "id"],
-          });
-        }
-        seen.add(q.id);
-      });
-    }),
+  questions: questionsSchema,
 });
 
 export type OaSettingsInput = z.input<typeof oaSettingsSchema>;
