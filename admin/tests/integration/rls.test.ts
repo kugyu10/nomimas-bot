@@ -359,19 +359,22 @@ describe("RPC: register_owner_by_identity", () => {
 // ===========================================================
 describe("RPC: create_event_with_urls は invoker 権限で RLS が効く", () => {
   it("user1 が dev-oa-2 のイベントを RPC 経由で作成 → エラー（with check 違反）+ 孤児なし", async () => {
-    const eventJson = JSON.stringify({
+    // 注: postgres.js で jsonb パラメータを渡すときは sql.json() を使う
+    // （JSON.stringify した文字列を ::jsonb キャストすると jsonb 文字列スカラーに
+    //   二重エンコードされ、->> がすべて null を返す）
+    const eventParam = sql.json({
       oa_config_id: OA2_ID,
       title: "hacked-rpc-event",
       event_date: "2026-12-31",
       confirm_days_before: 7,
     });
-    const urlsJson = JSON.stringify([
+    const urlsParam = sql.json([
       { platform: "twipla", url: "https://twipla.jp/events/999999901" },
     ]);
 
     await expect(
       asUser(sql, user1Id, (tx) =>
-        tx`select public.create_event_with_urls(${eventJson}::jsonb, ${urlsJson}::jsonb)`,
+        tx`select public.create_event_with_urls(${eventParam}::jsonb, ${urlsParam}::jsonb)`,
       ),
     ).rejects.toThrow();
 
@@ -426,13 +429,14 @@ describe("RPC: register_owner_by_identity は screen_name をケース非区別�
       `;
 
       // 2. user1 に X identity（混在ケースの user_name）を一時付与
+      // sql.json(): 文字列の ::jsonb キャストは二重エンコードされるため必須
       await sql`
         insert into auth.identities
           (id, provider_id, user_id, identity_data, provider,
            last_sign_in_at, created_at, updated_at)
         values
           (gen_random_uuid(), ${PROVIDER_ID}, ${user1Id},
-           ${JSON.stringify({ sub: PROVIDER_ID, user_name: "CaseTest_Owner" })}::jsonb,
+           ${sql.json({ sub: PROVIDER_ID, user_name: "CaseTest_Owner" })},
            'x', now(), now(), now())
       `;
 
