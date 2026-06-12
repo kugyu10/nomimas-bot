@@ -114,10 +114,37 @@ export async function notifyConfirmUpdate(
   }
 
   // (d) 受信者解決（oa_members を service role で読む — RLS 非適用）
-  const { data: members } = await supabase
+  const { data: members, error: membersError } = await supabase
     .from("oa_members")
     .select("line_user_id")
     .eq("oa_config_id", ev.oa_config_id);
+
+  // 04-REVIEW WR-04: SELECT 失敗を「受信者が本当に0」と区別する。
+  // recipients=0 に偽装すると notification_logs（NOTIF-01 の機械検証基盤）が
+  // インフラ障害を正常ゼロ送信として記録してしまうため、detail.recipients_error
+  // 付きの行を記録して return（件数のみ・PII なし — T-04-06。throw しない — T-04-07）
+  if (membersError) {
+    console.error(
+      `notify: oa_members select failed (kind=${params.kind}): ${membersError.message}`,
+    );
+    const { error: logError } = await supabase
+      .from("notification_logs")
+      .insert({
+        oa_config_id: ev.oa_config_id,
+        event_id: ev.id,
+        participant_id: params.participantId,
+        kind: params.kind,
+        recipients: 0,
+        sent: 0,
+        failed: 0,
+        skipped_no_line_id: 0,
+        detail: { recipients_error: true },
+      });
+    if (logError) {
+      console.error(`notify: notification_logs insert failed: ${logError.message}`);
+    }
+    return { ...baseResult, inWindow: true };
+  }
 
   const allMembers = members ?? [];
   const recipientMembers = allMembers.filter((m) => m.line_user_id != null);
@@ -231,10 +258,38 @@ export async function notifyScrapeChanges(
   }
 
   // (d) 受信者解決
-  const { data: members } = await supabase
+  const { data: members, error: membersError } = await supabase
     .from("oa_members")
     .select("line_user_id")
     .eq("oa_config_id", params.oaConfigId);
+
+  // 04-REVIEW WR-04: SELECT 失敗を「受信者0」と区別する（notifyConfirmUpdate と同様）
+  if (membersError) {
+    console.error(
+      `notify: oa_members select failed (kind=scrape_changes): ${membersError.message}`,
+    );
+    const { error: logError } = await supabase
+      .from("notification_logs")
+      .insert({
+        oa_config_id: params.oaConfigId,
+        event_id: params.eventId,
+        participant_id: null,
+        kind: "scrape_changes",
+        recipients: 0,
+        sent: 0,
+        failed: 0,
+        skipped_no_line_id: 0,
+        detail: {
+          recipients_error: true,
+          new: params.newParticipants.length,
+          statusChanged: params.statusChanges.length,
+        },
+      });
+    if (logError) {
+      console.error(`notify: notification_logs insert failed (scrape): ${logError.message}`);
+    }
+    return { ...baseResult, inWindow: true };
+  }
 
   const allMembers = members ?? [];
   const recipientMembers = allMembers.filter((m) => m.line_user_id != null);
