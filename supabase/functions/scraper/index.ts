@@ -5,6 +5,8 @@
 import { z } from "zod";
 import { resolveProvider } from "../_shared/providers/registry.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
+import { diffParticipants } from "../_shared/notify/diff.ts";
+import { notifyScrapeChanges } from "../_shared/notify/notifier.ts";
 
 // zod 4 では z.url() で URL バリデーション（z.string().url() は旧 zod 3 の書き方）
 const RequestSchema = z.object({
@@ -65,9 +67,10 @@ Deno.serve(async (req: Request) => {
   let saved = false;
 
   // maybeSingle: 0行は data:null で返り error にならない（DB障害と「URL未登録」を区別する — WR-03）
+  // events をネスト select に拡張（通知に必要な event_id / title / event_date / oa_config_id を1クエリで — Pattern 2）
   const { data: epu, error: epuError } = await supabase
     .from("event_platform_urls")
-    .select("id")
+    .select("id, events(id, title, event_date, oa_config_id)")
     .eq("url", body.url)
     .maybeSingle();
 
@@ -78,6 +81,10 @@ Deno.serve(async (req: Request) => {
       headers: { "Content-Type": "application/json" },
     });
   }
+
+  // 通知結果（レスポンスに含める）
+  let changes: { new: number; statusChanged: number } = { new: 0, statusChanged: 0 };
+  let notified = 0;
 
   if (epu) {
     // 参加者の同一性キー（CR-01対応）:
@@ -102,6 +109,17 @@ Deno.serve(async (req: Request) => {
     }
     const rows = [...byKey.values()];
 
+    // (4a) upsert 前に既存行を select — select-before-upsert 差分計算（Pattern 2）
+    // existErr 時は差分検出を諦め通知スキップ（upsert 自体は続行 — 取得保存優先）
+    const { data: existingRows, error: existErr } = await supabase
+      .from("participants")
+      .select("natural_key, status, display_name")
+      .eq("event_platform_url_id", epu.id);
+
+    if (existErr) {
+      console.error(`[scraper] existing rows select error (skipping diff): ${existErr.message}`);
+    }
+
     const { error: upsertError } = await supabase
       .from("participants")
       .upsert(rows, { onConflict: "event_platform_url_id,natural_key" });
@@ -117,16 +135,70 @@ Deno.serve(async (req: Request) => {
     saved = true;
     // 件数のみログ（参加者生データをログに残さない — T-01-08）
     console.log(`[scraper] upserted ${rows.length} participants for url=${body.url}`);
+
+    // (4b) 差分計算 + 通知（upsert 成功後）
+    if (!existErr && existingRows) {
+      if (existingRows.length === 0) {
+        // 初回スクレイプ: 全員が「新規」になるため通知スキップ+件数ログ（Pitfall 2）
+        console.log(`[scraper] initial scrape — skipping notification (${rows.length} participants)`);
+      } else {
+        // incoming 形式に変換して純関数 diffParticipants で差分計算
+        const incoming = rows.map((r) => ({
+          naturalKey: r.natural_key as string,
+          displayName: r.display_name as string,
+          status: r.status as string,
+        }));
+        const diff = diffParticipants(existingRows, incoming);
+
+        if (diff.newParticipants.length > 0 || diff.statusChanges.length > 0) {
+          changes = {
+            new: diff.newParticipants.length,
+            statusChanged: diff.statusChanges.length,
+          };
+
+          // イベント情報をネスト select から取得（型を安全に取り出す）
+          const eventsData = epu.events as unknown as
+            | { id: string; title: string; event_date: string | null; oa_config_id: string }
+            | null;
+
+          if (eventsData) {
+            try {
+              const r = await notifyScrapeChanges(supabase, {
+                eventId: eventsData.id,
+                oaConfigId: eventsData.oa_config_id,
+                eventTitle: eventsData.title,
+                eventDate: eventsData.event_date,
+                newParticipants: diff.newParticipants,
+                statusChanges: diff.statusChanges,
+              });
+              notified = r.sent;
+              console.log(
+                `[scraper] notify kind=${r.kind} inWindow=${r.inWindow} sent=${r.sent} failed=${r.failed} skipped=${r.skippedNoLineId}`,
+              );
+            } catch (err) {
+              // 通知失敗はログのみ（upsert 成功済み — 保存経路を壊さない）
+              console.error(`[scraper] notify failed: ${(err as Error).message}`);
+            }
+          } else {
+            console.log(`[scraper] event not found from epu — skipping notification`);
+          }
+        } else {
+          console.log(`[scraper] no changes detected — skipping notification`);
+        }
+      }
+    }
   } else {
     console.log(`[scraper] url not registered in event_platform_urls: ${body.url}`);
   }
 
-  // (5) レスポンスは platform / count / saved のみ（参加者生データは含めない — T-01-08）
+  // (5) レスポンスは platform / count / saved + changes / notified（既存キー不変 — A5）
   return new Response(
     JSON.stringify({
       platform: result.platform,
       count: result.participants.length,
       saved,
+      changes,
+      notified,
     }),
     {
       status: 200,
