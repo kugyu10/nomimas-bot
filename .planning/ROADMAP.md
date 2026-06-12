@@ -88,7 +88,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 03-01-PLAN.md — スキーマ/RLS本実装（書込ポリシー+owner登録RPC+IN-05）+ seed/setup-dev拡張 + [BLOCKING] dev再適用 [Wave 1]
+- [x] 03-01-PLAN.md — スキーマ/RLS本実装（書込ポリシー+owner登録RPC+IN-05）+ seed/setup-dev拡張 + [BLOCKING] dev再適用 [Wave 1]
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -126,7 +126,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. 基盤構築 + スクレイピング検証 | 3/3 | Complete   | 2026-06-11 |
 | 2. LINE Botコア機能 | 4/4 | Complete   | 2026-06-11 |
-| 3. 管理画面 | 0/? | Not started | - |
+| 3. 管理画面 | 1/5 | In Progress|  |
 | 4. 通知 + 統合仕上げ | 0/? | Not started | - |
 
 ## Coverage
