@@ -45,6 +45,7 @@ const OA2_EPU_ID = "00000000-0000-0000-0000-000000000013";
 const OA1_LINE_USER_ID = "00000000-0000-0000-0000-000000000004";
 const OA2_LINE_USER_ID = "00000000-0000-0000-0000-000000000014";
 const OA1_PARTICIPANT_ID = "00000000-0000-0000-0000-000000000005";
+const OA2_PARTICIPANT_ID = "00000000-0000-0000-0000-000000000015";
 
 let sql: ReturnType<typeof connectDev>;
 let user1Id: string;
@@ -516,12 +517,14 @@ describe("root 横断閲覧（OA-02完成・成功条件3）", () => {
   });
 
   it("root は両OAの participants を SELECT できる（OA2 の参加者も可視）", async () => {
-    // OA2 participants（user1 には 0行だが root には見える）
+    // OA2 participants（user1 には 0行だが root には見える — 上の可視性テストと対比）
+    // 04-REVIEW WR-06: seed の dev-participant-2 (...0015) が root に可視であることを
+    // 実際に assert する（>= 0 では root SELECT ポリシーの退行を検知できない）
     const rootParticipants = await asUser(sql, rootId, (tx) =>
       tx`select id from public.participants where event_platform_url_id = ${OA2_EPU_ID}`,
     );
-    // OA2 に seed 参加者が存在すること（dev seed に dev-participant-2 がある前提）
-    expect(rootParticipants.length).toBeGreaterThanOrEqual(0); // 0 行でも RLS エラーではない
+    expect(rootParticipants.length).toBeGreaterThanOrEqual(1);
+    expect(rootParticipants.map((r) => r.id)).toContain(OA2_PARTICIPANT_ID);
 
     // OA1 の参加者は取得できる
     const oa1Participants = await asUser(sql, rootId, (tx) =>
