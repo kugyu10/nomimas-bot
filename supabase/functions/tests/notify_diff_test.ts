@@ -10,8 +10,8 @@ import { diffParticipants } from "../_shared/notify/diff.ts";
 
 Deno.test("diffParticipants: 不変（変化なし）→ 両リスト空", () => {
   const existing: ExistingRow[] = [
-    { natural_key: "nk1", status: "attending", display_name: "田中太郎" },
-    { natural_key: "nk2", status: "interested", display_name: "山田花子" },
+    { natural_key: "nk1", status: "attending" },
+    { natural_key: "nk2", status: "interested" },
   ];
   const incoming = [
     { naturalKey: "nk1", displayName: "田中太郎", status: "attending" },
@@ -24,7 +24,7 @@ Deno.test("diffParticipants: 不変（変化なし）→ 両リスト空", () =>
 
 Deno.test("diffParticipants: 新規参加者の分類", () => {
   const existing: ExistingRow[] = [
-    { natural_key: "nk1", status: "attending", display_name: "田中太郎" },
+    { natural_key: "nk1", status: "attending" },
   ];
   const incoming = [
     { naturalKey: "nk1", displayName: "田中太郎", status: "attending" },
@@ -39,7 +39,7 @@ Deno.test("diffParticipants: 新規参加者の分類", () => {
 
 Deno.test("diffParticipants: status 変化の分類（from/to 保持）", () => {
   const existing: ExistingRow[] = [
-    { natural_key: "nk1", status: "attending", display_name: "田中太郎" },
+    { natural_key: "nk1", status: "attending" },
   ];
   const incoming = [
     { naturalKey: "nk1", displayName: "田中太郎", status: "declined" },
@@ -65,8 +65,8 @@ Deno.test("diffParticipants: 初回スクレイプ（existing 空）→ 全員 n
 
 Deno.test("diffParticipants: 既存キーと新キーの混在（バッチ内混在）", () => {
   const existing: ExistingRow[] = [
-    { natural_key: "nk1", status: "attending", display_name: "田中太郎" },
-    { natural_key: "nk2", status: "attending", display_name: "山田花子" },
+    { natural_key: "nk1", status: "attending" },
+    { natural_key: "nk2", status: "attending" },
   ];
   const incoming = [
     { naturalKey: "nk1", displayName: "田中太郎", status: "declined" },  // status変化

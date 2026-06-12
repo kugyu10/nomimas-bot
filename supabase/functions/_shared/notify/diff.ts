@@ -7,11 +7,12 @@
  * upsert 前に1 select して既存 Map を作り、upsert 後にこの純関数で差分計算する。
  */
 
-/** upsert 前に participants テーブルから取得した既存行 */
+/** upsert 前に participants テーブルから取得した既存行
+ * （04-REVIEW IN-01: display_name は差分計算で未使用のため保持しない —
+ *   新規/変化エントリの displayName は incoming 側から取る） */
 export interface ExistingRow {
   natural_key: string;
   status: string;
-  display_name: string;
 }
 
 /** 差分計算結果 */

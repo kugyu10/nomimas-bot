@@ -111,9 +111,10 @@ Deno.serve(async (req: Request) => {
 
     // (4a) upsert 前に既存行を select — select-before-upsert 差分計算（Pattern 2）
     // existErr 時は差分検出を諦め通知スキップ（upsert 自体は続行 — 取得保存優先）
+    // IN-01: display_name は diffParticipants で未使用のため select しない
     const { data: existingRows, error: existErr } = await supabase
       .from("participants")
-      .select("natural_key, status, display_name")
+      .select("natural_key, status")
       .eq("event_platform_url_id", epu.id);
 
     if (existErr) {
