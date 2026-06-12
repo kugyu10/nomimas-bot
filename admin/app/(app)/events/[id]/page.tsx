@@ -3,11 +3,10 @@
 // - Next 16: const { id } = await props.params（params は Promise）
 // - タイトル + 開催日 subtitle + 参加者を取得ボタン + 3タブ（参加者/回答状況/紐付け）
 import { notFound } from "next/navigation";
-import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { getEvent } from "@/lib/data/events";
 import { listParticipantsByEvent, getParticipantsWithAnswers, getLinkingLists } from "@/lib/data/participants";
-import { listMyOas, resolveSelectedOaId, getOaSettings } from "@/lib/data/oa";
+import { getOaSettings } from "@/lib/data/oa";
 import { ScrapeButton } from "@/components/events/scrape-button";
 import { EventEditButton } from "@/components/events/event-edit-button";
 import { ParticipantsTab } from "@/components/events/participants-tab";
@@ -34,22 +33,17 @@ export default async function EventDetailPage({ params }: EventDetailPageProps) 
     notFound();
   }
 
-  // OA スコープ解決（cookie → 自 OA 一覧と突合）
-  const cookieStore = await cookies();
-  const selectedOaCookie = cookieStore.get("nomimas_selected_oa_id")?.value;
-  const myOas = await listMyOas(supabase);
-  const selectedOaId = resolveSelectedOaId(selectedOaCookie, myOas);
+  // OA スコープ解決: イベント自身の oa_config_id を使う（WR-03）
+  // selector cookie を使うと複数 OA 所属ユーザーで他 OA の questions / line_users が
+  // 混入し、紐付けが必ず RLS with check で失敗する
+  const oaId = event.oa_config_id;
 
   // 3タブ用データを並列取得
   const [participants, participantsWithAnswers, oaSettings, linkingLists] = await Promise.all([
     listParticipantsByEvent(supabase, id),
     getParticipantsWithAnswers(supabase, id),
-    selectedOaId ? getOaSettings(supabase, selectedOaId) : Promise.resolve(null),
-    selectedOaId ? getLinkingLists(supabase, id, selectedOaId) : Promise.resolve({
-      unlinked: [],
-      linked: [],
-      lineUserCandidates: [],
-    }),
+    getOaSettings(supabase, oaId),
+    getLinkingLists(supabase, id, oaId),
   ]);
 
   // questions: OA設定から取得（null 安全）
