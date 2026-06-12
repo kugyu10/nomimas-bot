@@ -17,16 +17,19 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createClient } from "@supabase/supabase-js";
 import { getParticipantsWithAnswers } from "../../lib/data/participants";
 import { insertEvent } from "../../lib/data/events";
+import { listQuestionTemplates } from "../../lib/data/templates";
 import { connectDev } from "./rls.helpers";
 
 const DEV_PROJECT_REF = "cmsxvxtcdniqgvhxjqri";
 const OA1_ID = "00000000-0000-0000-0000-000000000001";
+const OA2_ID = "00000000-0000-0000-0000-000000000011";
 const OA1_EVENT_ID = "00000000-0000-0000-0000-000000000002";
 const OA1_EPU_ID = "00000000-0000-0000-0000-000000000003";
 const OA2_EVENT_ID = "00000000-0000-0000-0000-000000000012";
 const PARTICIPANT_ID = "00000000-0000-0000-0000-000000000005";
 
 let supabaseUser1: ReturnType<typeof createClient>;
+let supabaseUser2: ReturnType<typeof createClient>;
 
 beforeAll(async () => {
   // dev only ガード
@@ -53,9 +56,21 @@ beforeAll(async () => {
   supabaseUser1 = createClient(url, anonKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  const { error } = await supabaseUser1.auth.signInWithPassword({ email, password });
-  if (error) {
-    throw new Error(`[data.test] signInWithPassword failed: ${error.message}`);
+  const { error: err1 } = await supabaseUser1.auth.signInWithPassword({ email, password });
+  if (err1) {
+    throw new Error(`[data.test] signInWithPassword failed (user1): ${err1.message}`);
+  }
+
+  // user2 (dev-owner-2) で signInWithPassword（OA2 owner + OA1 co-owner）
+  supabaseUser2 = createClient(url, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { error: err2 } = await supabaseUser2.auth.signInWithPassword({
+    email: "dev-owner-2@nomimas.test",
+    password,
+  });
+  if (err2) {
+    throw new Error(`[data.test] signInWithPassword failed (user2): ${err2.message}`);
   }
 });
 
@@ -64,6 +79,13 @@ afterAll(async () => {
   if (supabaseUser1) {
     try {
       await supabaseUser1.auth.signOut();
+    } catch {
+      // signOut の失敗はテスト結果に影響しない
+    }
+  }
+  if (supabaseUser2) {
+    try {
+      await supabaseUser2.auth.signOut();
     } catch {
       // signOut の失敗はテスト結果に影響しない
     }
@@ -192,5 +214,64 @@ describe("insertEvent (create_event_with_urls RPC)", () => {
         await sql.end();
       }
     }
+  });
+});
+
+// ===========================================================
+// listQuestionTemplates — クロスOA適用候補テスト（OA-03）
+//
+// user2（OA2 owner + OA1 co-owner）で実行すると両OAのテンプレートが返る
+// user1（OA1 owner のみ）で実行すると OA1 分のみ
+// ===========================================================
+describe("listQuestionTemplates — クロスOA適用候補（OA-03 data 層検証）", () => {
+  let tplOa1Id: string;
+  let tplOa2Id: string;
+  const sql = connectDev();
+
+  beforeAll(async () => {
+    // service role で OA1/OA2 に各1件フィクスチャ投入（afterAll で削除）
+    const r1 = await sql`
+      insert into public.question_templates (oa_config_id, name, questions)
+      values (
+        ${OA1_ID},
+        'クロスOA テスト OA1 テンプレート',
+        ${sql.json([{ id: "q1", text: "質問1", options: ["A"] }])}
+      )
+      returning id
+    `;
+    tplOa1Id = r1[0].id;
+
+    const r2 = await sql`
+      insert into public.question_templates (oa_config_id, name, questions)
+      values (
+        ${OA2_ID},
+        'クロスOA テスト OA2 テンプレート',
+        ${sql.json([{ id: "q1", text: "質問1", options: ["A"] }])}
+      )
+      returning id
+    `;
+    tplOa2Id = r2[0].id;
+  });
+
+  afterAll(async () => {
+    await sql`delete from public.question_templates where id in (${tplOa1Id}, ${tplOa2Id})`;
+    await sql.end();
+  });
+
+  it("user2（OA2 owner + OA1 co-owner）は両OAのテンプレートが返る（クロスOA適用候補）", async () => {
+    const templates = await listQuestionTemplates(supabaseUser2);
+    const ids = templates.map((t) => t.id);
+    // 自分が投入した両方のフィクスチャ ID が含まれる
+    expect(ids).toContain(tplOa1Id);
+    expect(ids).toContain(tplOa2Id);
+  });
+
+  it("user1（OA1 owner のみ）は OA1 のテンプレートのみ返る", async () => {
+    const templates = await listQuestionTemplates(supabaseUser1);
+    const ids = templates.map((t) => t.id);
+    // OA1 のテンプレートは見える
+    expect(ids).toContain(tplOa1Id);
+    // OA2 のテンプレートは見えない（RLS スコープ）
+    expect(ids).not.toContain(tplOa2Id);
   });
 });

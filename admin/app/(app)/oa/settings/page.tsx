@@ -10,6 +10,7 @@
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { listMyOas, resolveSelectedOaId, getOaSettings } from "@/lib/data/oa";
+import { listQuestionTemplates } from "@/lib/data/templates";
 import { OaSettingsForm } from "@/components/oa/oa-settings-form";
 
 export default async function OaSettingsPage() {
@@ -33,7 +34,10 @@ export default async function OaSettingsPage() {
     );
   }
 
-  const oaConfig = await getOaSettings(supabase, selectedOaId);
+  const [oaConfig, templates] = await Promise.all([
+    getOaSettings(supabase, selectedOaId),
+    listQuestionTemplates(supabase),
+  ]);
 
   if (!oaConfig) {
     return (
@@ -58,7 +62,7 @@ export default async function OaSettingsPage() {
         <p className="text-sm text-muted-foreground mt-1">{selectedOaName}</p>
       </div>
 
-      <OaSettingsForm oaConfig={oaConfig} />
+      <OaSettingsForm oaConfig={oaConfig} templates={templates} />
     </div>
   );
 }

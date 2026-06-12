@@ -6,12 +6,19 @@
  * - キーボード代替（上下移動ボタン）
  * - 質問の追加・削除
  * - 選択肢の追加・削除・編集
+ * - テンプレート保存 Dialog（04-UI-SPEC §1）
+ * - テンプレート適用 Select + AlertDialog（04-UI-SPEC §2）
  */
-import { useCallback } from "react";
+import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { GripVertical, Plus, Trash2, ChevronUp, ChevronDown } from "lucide-react";
+import { TemplateSaveDialog } from "@/components/oa/template-save-dialog";
+import { TemplateApplySelect } from "@/components/oa/template-apply-select";
+import type { saveQuestionTemplate } from "@/lib/actions/templates";
+import type { QuestionTemplate } from "@/lib/data/templates";
 
 export interface QuestionItem {
   id: string;
@@ -22,14 +29,24 @@ export interface QuestionItem {
 interface QuestionListEditorProps {
   value: QuestionItem[];
   onChange: (questions: QuestionItem[]) => void;
+  oaConfigId?: string;
+  templates?: QuestionTemplate[];
+  saveTemplateAction?: typeof saveQuestionTemplate;
 }
 
 function generateId(): string {
   return `q_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
-export function QuestionListEditor({ value, onChange }: QuestionListEditorProps) {
+export function QuestionListEditor({
+  value,
+  onChange,
+  oaConfigId,
+  templates,
+  saveTemplateAction,
+}: QuestionListEditorProps) {
   const questions = value;
+  const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
 
   const addQuestion = useCallback(() => {
     onChange([
@@ -125,8 +142,36 @@ export function QuestionListEditor({ value, onChange }: QuestionListEditorProps)
     [questions, updateQuestion],
   );
 
+  const handleSaveSuccess = useCallback(() => {
+    setSaveSuccessMessage("テンプレートを保存しました");
+    setTimeout(() => setSaveSuccessMessage(null), 4000);
+  }, []);
+
+  const handleApplyTemplate = useCallback(
+    (newQuestions: QuestionItem[]) => {
+      onChange(newQuestions);
+    },
+    [onChange],
+  );
+
   return (
     <div className="space-y-4">
+      {/* テンプレート適用 Select（04-UI-SPEC §2 — 質問リスト上部） */}
+      {templates !== undefined && (
+        <TemplateApplySelect
+          templates={templates}
+          currentQuestions={questions}
+          onApply={handleApplyTemplate}
+        />
+      )}
+
+      {/* テンプレート保存成功 Alert（4秒 auto-dismiss） */}
+      {saveSuccessMessage && (
+        <Alert variant="default">
+          <AlertDescription>{saveSuccessMessage}</AlertDescription>
+        </Alert>
+      )}
+
       {questions.map((q, qIndex) => (
         <div
           key={q.id}
@@ -232,16 +277,28 @@ export function QuestionListEditor({ value, onChange }: QuestionListEditorProps)
         </div>
       ))}
 
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={addQuestion}
-        className="w-full"
-      >
-        <Plus className="h-4 w-4 mr-1" />
-        質問を追加
-      </Button>
+      {/* アクションエリア: 「質問を追加」と「テンプレートとして保存」を同列 flex gap-2 */}
+      <div className="flex gap-2 flex-wrap">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={addQuestion}
+        >
+          <Plus className="h-4 w-4 mr-1" />
+          質問を追加
+        </Button>
+
+        {/* テンプレート保存トリガー（04-UI-SPEC §1） */}
+        {oaConfigId && saveTemplateAction && (
+          <TemplateSaveDialog
+            oaConfigId={oaConfigId}
+            questions={questions}
+            onSaveSuccess={handleSaveSuccess}
+            saveAction={saveTemplateAction}
+          />
+        )}
+      </div>
     </div>
   );
 }
