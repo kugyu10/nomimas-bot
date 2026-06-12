@@ -10,11 +10,12 @@ dns.setDefaultResultOrder("ipv4first");
 if (process.env.RLS_TEST === "1") {
   // env.dev の候補パスを順に試す
   // 1. 通常実行: admin/../env.dev（モノリポルートに env.dev がある想定）
-  // 2. ワークツリー実行: 環境変数が事前にセット済みの場合は loadEnvFile をスキップ
+  // 2. ENV_DEV_PATH: 任意の絶対パスを環境変数で指定可能（IN-04: マシン固有パスを非コミット化）
+  // 3. ワークツリー実行: 環境変数が事前にセット済みの場合は loadEnvFile をスキップ
   const candidatePaths = [
     "../env.dev",                                            // admin/ からの相対パス
     "../../env.dev",                                         // ワークツリーから2階層上
-    "/Users/kugyu10/work/nomimas-bot/env.dev",              // 絶対パス（フォールバック）
+    ...(process.env.ENV_DEV_PATH ? [process.env.ENV_DEV_PATH] : []),
   ];
 
   let loaded = false;
