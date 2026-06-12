@@ -11,6 +11,9 @@ import postgres from "npm:postgres@3.4.9";
 
 const DEV_PROJECT_REF = "cmsxvxtcdniqgvhxjqri";
 
+// IN-08: リージョン固定のマジック定数を名前付き定数化（env SUPABASE_POOLER_HOST で上書き可能）
+const SUPABASE_POOLER_HOST = "aws-1-ap-northeast-1.pooler.supabase.com";
+
 /**
  * dev Supabase プーラーへの接続を確立する。
  * 環境変数 DEV_PROJECT_REF が 'cmsxvxtcdniqgvhxjqri' でない場合は即終了（prod 安全弁）。
@@ -45,7 +48,7 @@ export function connectDev(): ReturnType<typeof postgres> {
   }
 
   return postgres({
-    host: "aws-1-ap-northeast-1.pooler.supabase.com",
+    host: Deno.env.get("SUPABASE_POOLER_HOST") || SUPABASE_POOLER_HOST,
     port: 5432,
     database: "postgres",
     username: `postgres.${ref}`,
