@@ -33,6 +33,7 @@ create table public.oa_members (
   oa_config_id uuid not null references public.oa_configs(id) on delete cascade,
   auth_user_id uuid not null references auth.users(id) on delete cascade,
   role text not null check (role in ('owner', 'co-owner')),
+  line_user_id text,   -- 通知先 LINE userId ("U..." 形式)。null = 通知スキップ+ログ
   created_at timestamptz not null default now(),
   unique(oa_config_id, auth_user_id)
 );
@@ -146,3 +147,42 @@ create trigger events_set_updated_at
 create trigger participants_set_updated_at
   before update on public.participants
   for each row execute function public.set_updated_at();
+
+-- =============================================================
+-- Phase 4: root権限・質問テンプレート・通知ログ
+-- =============================================================
+
+-- root_users: root 権限を持つ auth.users の参照テーブル
+-- T-04-01: ポリシーなし（deny-by-default）。authenticated から不可視 = root の存在秘匿
+-- 投入経路は setup-dev.ts（service role）のみ — authenticated に INSERT 経路を与えない
+create table public.root_users (
+  auth_user_id uuid primary key references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+-- question_templates: 定型質問テンプレート（OA-03）
+-- 保存スキーマは oa_configs.questions と同一（oaSettingsSchema.questions 共通 export 参照）
+create table public.question_templates (
+  id uuid primary key default gen_random_uuid(),
+  oa_config_id uuid not null references public.oa_configs(id) on delete cascade,
+  name text not null,
+  questions jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+-- notification_logs: 通知発火の機械検証基盤（NOTIF-01）
+-- 窓外は行を書かず console に件数ログのみ — 「2日前より前では通知されない」= 行が存在しないこと
+-- detail は件数 jsonb のみ（例: {"new": 2, "statusChanged": 1}）— PII（名前・userId）は入れない
+create table public.notification_logs (
+  id uuid primary key default gen_random_uuid(),
+  oa_config_id uuid not null references public.oa_configs(id) on delete cascade,
+  event_id uuid not null references public.events(id) on delete cascade,
+  participant_id uuid references public.participants(id) on delete set null,
+  kind text not null check (kind in ('answer', 'completion', 'scrape_changes')),
+  recipients integer not null default 0,
+  sent integer not null default 0,
+  failed integer not null default 0,
+  skipped_no_line_id integer not null default 0,
+  detail jsonb,
+  created_at timestamptz not null default now()
+);
