@@ -1,7 +1,8 @@
 ---
 phase: 3
 slug: admin-ui
-status: draft
+status: approved
+reviewed_at: 2026-06-12T00:00:00Z
 shadcn_initialized: true
 preset: new-york / neutral base / zinc accent
 created: 2026-06-12
@@ -69,12 +70,11 @@ Font: Inter (via `next/font/google` or system-ui fallback). All weights from the
 | Role | Size | Weight | Line Height | Usage |
 |------|------|--------|-------------|-------|
 | Body | 14px | 400 (regular) | 1.5 | Table cell content, form field values, description text |
-| Label | 12px | 500 (medium) | 1.4 | Table column headers, form labels, badge text, tab labels |
+| Label | 12px | 400 (regular) | 1.4 | Table column headers, form labels, badge text, tab labels (サイズ差で区別、weightは増やさない) |
 | Heading | 20px | 600 (semibold) | 1.2 | Page titles (e.g., "イベント一覧"), dialog titles |
-| Display | 28px | 700 (bold) | 1.1 | Not used in Phase 3 (no marketing/hero sections) |
 
 Rules:
-- Body and Label are the two production weights. Heading uses semibold (600) only. **(auto)**
+- Production weights are exactly 2: 400 (regular — Body/Label) and 600 (semibold — Heading). No medium/bold. **(auto, checker fix)**
 - Japanese text: no letter-spacing adjustments needed at these sizes. **(auto)**
 - Monospace (12px/400): used only in OA設定 for question JSON previews or API key display fields. **(auto)**
 
@@ -92,7 +92,7 @@ Base palette: shadcn neutral scale. Surfaces are white/gray-50. Accent is zinc-9
 | Destructive | red-600 | #dc2626 | 紐付け解除ボタン, 危険な操作の確認ダイアログのボタンのみ |
 
 Accent reserved for (explicit list — never "all interactive elements"):
-1. Primary CTA buttons ("イベントを作成", "保存", "取得開始")
+1. Primary CTA buttons ("イベントを作成", "イベントを保存", "設定を保存", "取得開始")
 2. Active sidebar navigation item (left border indicator + text)
 3. Active tab underline (イベント詳細タブ)
 4. Focus ring on interactive elements (via shadcn ring-ring token)
@@ -185,7 +185,7 @@ All from shadcn/ui official registry (new-york style). No third-party registry n
   - 店情報 / 備考 (textarea, optional)
   - confirm_days_before (select: 1/2/3/5/7日前, default 3)
   - プラットフォームURL (repeatable input group: [プラットフォーム種別 select] + [URL input]; min 1, add button "+URL追加")
-- Dialog footer: [キャンセル (ghost)] [保存 (accent)]
+- Dialog footer: [閉じる (ghost)] [イベントを保存 (accent)]
 
 ### イベント詳細 (`/events/[id]`)
 
@@ -209,7 +209,7 @@ All from shadcn/ui official registry (new-york style). No third-party registry n
 
 - Two-column layout (desktop): 左=未紐付け参加者リスト | 右=紐付け済みリスト
 - 未紐付けリスト: participant名 + Combobox (LINE友だちを選択...) + "紐付け" button
-- 紐付け済みリスト: participant名 → LINE表示名 + "解除" button (destructive/outline)
+- 紐付け済みリスト: participant名 → LINE表示名 + "紐付けを解除" button (destructive/outline)
 - Combobox: searches `line_users.display_name` + filters already-linked users
 - Empty state (全員紐付け済み): "全員の紐付けが完了しています" (green alert variant)
 
@@ -221,7 +221,7 @@ All from shadcn/ui official registry (new-york style). No third-party registry n
   1. 基本情報: OA名, チャンネルID (read-only display), 管理者TwitterID(s) (comma-separated input)
   2. 定型文: 最終確認メッセージ冒頭 (textarea), 完了メッセージ (textarea)
   3. 質問設定: ordered list of question items (text + drag handle for reorder). Add/remove per item.
-- Page footer: "保存" button (accent, full-width on mobile, right-aligned on desktop)
+- Page footer: "設定を保存" button (accent, full-width on mobile, right-aligned on desktop)
 - No destructive action on this page in Phase 3 (OA deletion deferred)
 
 ---
@@ -233,7 +233,7 @@ All copy in Japanese. Labels use です/ます-free short form for UI labels; de
 | Element | Copy | Source |
 |---------|------|--------|
 | Primary CTA — create event | + イベントを作成 | CONTEXT.md + auto |
-| Primary CTA — save form | 保存 | auto |
+| Primary CTA — save event form | イベントを保存 | auto |
 | Primary CTA — trigger scrape | 参加者を取得 | auto |
 | Primary CTA — link participant | 紐付け | auto |
 | Primary CTA — save OA settings | 設定を保存 | auto |
@@ -250,9 +250,9 @@ All copy in Japanese. Labels use です/ます-free short form for UI labels; de
 | Error — scrape failed | 参加者の取得に失敗しました。URLを確認してもう一度お試しください | auto |
 | Error — auth required | ログインが必要です | auto |
 | Error — no permission | このOAへのアクセス権限がありません | auto |
-| Destructive — unlink confirmation | 紐付けを解除しますか？ / この操作は元に戻せません。「解除」を押すと紐付けが削除されます | auto |
-| Destructive — unlink confirm button | 解除 | auto |
-| Destructive — unlink cancel button | キャンセル | auto |
+| Destructive — unlink confirmation | 紐付けを解除しますか？ / この操作は元に戻せません。「紐付けを解除」を押すと紐付けが削除されます | auto |
+| Destructive — unlink confirm button | 紐付けを解除 | auto |
+| Destructive — unlink cancel button | 解除しない | auto |
 | Auth — login page CTA | X（Twitter）でログイン | auto |
 | Auth — mock login label | テストユーザーでログイン（開発環境のみ） | auto |
 | Auth — logged-in user display | @{twitter_screen_name} | auto |
@@ -281,7 +281,7 @@ All copy in Japanese. Labels use です/ます-free short form for UI labels; de
 - Already-linked `line_user_id` values are excluded from dropdown options
 - On "紐付け" click: optimistic UI update (move participant to linked list) + server action call
 - On server action failure: revert optimistic update + show error alert inline **(auto)**
-- On "解除" click: open `<AlertDialog>` confirmation before server action
+- On "紐付けを解除" click: open `<AlertDialog>` confirmation before server action
 
 ### 参加者を取得 (Scraper Trigger)
 
@@ -293,7 +293,7 @@ All copy in Japanese. Labels use です/ます-free short form for UI labels; de
 ### イベント作成フォーム (Dialog)
 
 - Real-time zod validation on blur for each field
-- "保存" button disabled until form is valid
+- "イベントを保存" button disabled until form is valid
 - プラットフォームURL: Twipla URL pattern validation (`https://twipla.jp/events/[0-9]+`)
 - On save success: dialog closes + event list re-fetches + show alert: "イベントを作成しました"
 - On save failure: dialog stays open + error displayed below form footer **(auto)**
