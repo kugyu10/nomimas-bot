@@ -96,8 +96,8 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion — 並列実行可)*
 
-- [ ] 03-03-PLAN.md — イベントCRUD + 参加者取得トリガー + 参加者タブ（EVENT-01） [Wave 3]
-- [ ] 03-04-PLAN.md — OA設定ページ（OA-01）+ RLSマトリクス/モック認証テスト（成功条件1・6） [Wave 3]
+- [x] 03-03-PLAN.md — イベントCRUD + 参加者取得トリガー + 参加者タブ（EVENT-01） [Wave 3]
+- [x] 03-04-PLAN.md — OA設定ページ（OA-01）+ RLSマトリクス/モック認証テスト（成功条件1・6） [Wave 3]
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -126,7 +126,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. 基盤構築 + スクレイピング検証 | 3/3 | Complete   | 2026-06-11 |
 | 2. LINE Botコア機能 | 4/4 | Complete   | 2026-06-11 |
-| 3. 管理画面 | 2/5 | In Progress|  |
+| 3. 管理画面 | 4/5 | In Progress|  |
 | 4. 通知 + 統合仕上げ | 0/? | Not started | - |
 
 ## Coverage
