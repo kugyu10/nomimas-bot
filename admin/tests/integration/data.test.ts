@@ -72,6 +72,28 @@ beforeAll(async () => {
   if (err2) {
     throw new Error(`[data.test] signInWithPassword failed (user2): ${err2.message}`);
   }
+
+  // seed answers フィクスチャの冪等復元（E2E teardown が answers を掃除するため、
+  // db reset 直後の seed 状態に依存せず自己完結にする — seed.sql の行と同一内容）
+  const sql = connectDev();
+  try {
+    await sql`
+      insert into public.answers (id, participant_id, question_key, answer)
+      values (
+        '00000000-0000-0000-0000-000000000006',
+        '00000000-0000-0000-0000-000000000005',
+        'q_age',
+        '20歳以上です'
+      )
+      on conflict (id) do update set answer = excluded.answer, question_key = excluded.question_key
+    `;
+    await sql`
+      update public.participants set confirm_status = 'pending'
+      where id = '00000000-0000-0000-0000-000000000005' and confirm_status <> 'pending'
+    `;
+  } finally {
+    await sql.end();
+  }
 });
 
 afterAll(async () => {
