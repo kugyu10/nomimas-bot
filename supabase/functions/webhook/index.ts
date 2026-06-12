@@ -21,6 +21,7 @@
  */
 
 import { z } from "zod";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { validateLineSignature } from "../_shared/line/signature.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { issueStatelessToken } from "../_shared/line/token.ts";
@@ -194,8 +195,7 @@ Deno.serve(async (req) => {
 async function handleEvent(
   rawEvent: unknown,
   oaConfig: OaConfig,
-  // deno-lint-ignore no-explicit-any
-  supabase: any,
+  supabase: SupabaseClient, // IN-04: any をやめ supabase-js の型を使う
   getToken: () => Promise<string | null>,
 ): Promise<void> {
   const event = parseWebhookEvent(rawEvent);
