@@ -329,8 +329,28 @@ async function handleEvent(
 
     // (a) answer があれば answers へ upsert（DB更新を先 — Pitfall 3）
     // answerPersistFailed フラグで保存成否を後段（通知判定）で明示化
+    // 04-REVIEW WR-02: 同一回答の再送（過去質問ボタンの再タップ等）は通知をスキップする。
+    // 保存（upsert）自体は実行するが、値が変わらない場合は owner への push を抑止し、
+    // 再タップ連打による通知スパム / LINE メッセージ枠消費を防ぐ。
+    // select 失敗時は安全側（変化あり扱い = 通知継続）に倒し 200 契約に影響させない
     let answerPersistFailed = false;
+    let answerUnchanged = false;
     if (result.answer) {
+      const { data: prevAnswer, error: prevAnswerError } = await supabase
+        .from("answers")
+        .select("answer")
+        .eq("participant_id", participantId)
+        .eq("question_key", result.answer.questionId)
+        .maybeSingle();
+
+      if (prevAnswerError) {
+        console.error(
+          `webhook: previous answer select failed participant_id=${participantId}: ${prevAnswerError.message}`,
+        );
+      } else if (prevAnswer && prevAnswer.answer === result.answer.answer) {
+        answerUnchanged = true;
+      }
+
       const { error: upsertError } = await supabase
         .from("answers")
         .upsert(
@@ -427,20 +447,27 @@ async function handleEvent(
     // (d) owner/co-owner 通知（NOTIF-01 — reply 送信の後 — Pitfall 3）
     // 失敗しても 200 契約・reply に影響させない（T-04-07）
     // 保存成功の場合のみ通知（answerPersistFailed=false）— Pitfall 9 対応
+    // 04-REVIEW WR-02: 値が変わらない再送（answerUnchanged=true）は通知をスキップ
     if (result.answer && !answerPersistFailed) {
-      try {
-        const notifyKind = result.reply === "completion" ? "completion" : "answer";
-        const r = await notifyConfirmUpdate(supabase, getToken, {
-          participantId,
-          kind: notifyKind,
-        });
+      if (answerUnchanged) {
         console.log(
-          `webhook: notify kind=${r.kind} inWindow=${r.inWindow} sent=${r.sent} failed=${r.failed} skipped=${r.skippedNoLineId}`,
+          `webhook: notify skipped — answer unchanged participant_id=${participantId}`,
         );
-      } catch (err) {
-        console.error(
-          `webhook: notify failed participant_id=${participantId}: ${(err as Error).message}`,
-        );
+      } else {
+        try {
+          const notifyKind = result.reply === "completion" ? "completion" : "answer";
+          const r = await notifyConfirmUpdate(supabase, getToken, {
+            participantId,
+            kind: notifyKind,
+          });
+          console.log(
+            `webhook: notify kind=${r.kind} inWindow=${r.inWindow} sent=${r.sent} failed=${r.failed} skipped=${r.skippedNoLineId}`,
+          );
+        } catch (err) {
+          console.error(
+            `webhook: notify failed participant_id=${participantId}: ${(err as Error).message}`,
+          );
+        }
       }
     }
     return;

@@ -362,6 +362,30 @@ Deno.test({
       // user2 は line_user_id が null のため skipped_no_line_id=1（setup-dev の投入内容と一致）
       assertEquals(Number(logsAfterQ1[0]?.skipped_no_line_id), 1, "(e) skipped_no_line_id=1（user2 line_user_id=null）");
 
+      // Q1 再タップ（同一回答の再送 — 04-REVIEW WR-02 通知スパム抑止）
+      // 過去質問ボタンの再タップ（ルール4経路）: answers は UPSERT 上書きで行数不変、
+      // 値が変わらないため通知は発火しない（kind='answer' logs が増えない）
+      const q1RetapResp = await sendSignedEvent(webhookUrl, channelSecret, [
+        makePostbackEvent(SEED_LINE_USER_ID_STR, q1Data),
+      ]);
+      assertEquals(q1RetapResp.status, 200, "(e) Q1 同一回答再タップ → 200");
+      await q1RetapResp.body?.cancel();
+
+      const afterRetapAnswers = await sql<{ count: string }[]>`
+        SELECT COUNT(*) as count FROM public.answers WHERE participant_id = ${SEED_PARTICIPANT_ID}
+      `;
+      assertEquals(Number(afterRetapAnswers[0]?.count), 1, "(e) 再タップ後も answers が 1行（UPSERT 上書き）");
+
+      const logsAfterRetap = await sql<{ count: string }[]>`
+        SELECT COUNT(*) as count FROM public.notification_logs
+        WHERE participant_id = ${SEED_PARTICIPANT_ID} AND kind = 'answer'
+      `;
+      assertEquals(
+        Number(logsAfterRetap[0]?.count),
+        1,
+        "(e) 同一回答の再タップでは通知されない（WR-02 スパム抑止）",
+      );
+
       // Q2 postback
       const q2Data = encodePostback(SEED_PARTICIPANT_ID, Q_DRINK, 0);
       const q2Resp = await sendSignedEvent(webhookUrl, channelSecret, [
