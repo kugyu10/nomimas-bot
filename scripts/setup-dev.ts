@@ -7,13 +7,18 @@
  *      - cron_function_key: anonキー（ゲートウェイJWT通過用 Authorization）
  *      - cron_shared_secret: 専用シークレット CRON_FUNCTION_KEY（WR-01: x-cron-key 照合用）
  *   2. oa_configs.line_channel_id を dev-oa 行に設定（webhookのOA解決用）
- *   3. モックユーザー2名を冪等作成（GoTrue admin REST API経由）
+ *   3. モックユーザー3名を冪等作成（GoTrue admin REST API経由）
  *      - dev-owner-1@nomimas.test（user_name='dev_owner_x'）: dev-oa の owner
  *      - dev-owner-2@nomimas.test: dev-oa-2 の owner + dev-oa の co-owner
+ *      - dev-root@nomimas.test: root 権限テストユーザー（Phase 4 追加）
  *   4. oa_members を投入（モックユーザー作成後。on conflict do nothing で冪等）
  *      - user1 → oa_config ...0001 role 'owner'
  *      - user2 → oa_config ...0011 role 'owner'
  *      - user2 → oa_config ...0001 role 'co-owner'（成功条件6の co-owner ロール検証用）
+ *   5. Phase 4 拡張（冪等）:
+ *      - dev-root を root_users へ insert on conflict do nothing（service role 経由）
+ *      - user1 の oa_members 行（dev-oa owner）に line_user_id を UPDATE
+ *        （E2E 通知先。user2 は null のまま残す — skipped_no_line_id 経路の検証用）
  *
  * 使い方:
  *   set -a; source /Users/kugyu10/work/nomimas-bot/env.dev; set +a
@@ -165,13 +170,14 @@ try {
   }
 
   // =============================================================
-  // 3. モックユーザー2名を冪等作成
+  // 3. モックユーザー3名を冪等作成（Phase 4: root ユーザー追加）
   // T-03-04: パスワード・serviceRoleKey はログ出力しない
   // =============================================================
   console.log("[setup-dev] モックユーザー作成を開始します...");
 
   const user1Id = await ensureUser("dev-owner-1@nomimas.test", { user_name: "dev_owner_x" });
   const user2Id = await ensureUser("dev-owner-2@nomimas.test", { user_name: "dev_owner_2" });
+  const rootUserId = await ensureUser("dev-root@nomimas.test", { user_name: "dev_root" });
 
   // =============================================================
   // 4. oa_members 投入（IN-05 FK のため auth.users 作成後に実行）
@@ -208,6 +214,43 @@ try {
 
   const memberCount = await sql`select count(*) from public.oa_members`;
   console.log(`[setup-dev] oa_members 合計: ${memberCount[0].count} 行`);
+
+  // =============================================================
+  // 5. Phase 4: root_users 投入 + user1 の oa_members.line_user_id 設定
+  // root 登録経路は service role のみ（authenticated に INSERT 経路を与えない — T-04-01）
+  // line_user_id は dev 用架空値（公開リポジトリ安全な固定値 — seed line_users と同流儀）
+  // =============================================================
+  console.log("[setup-dev] Phase 4: root_users + line_user_id 設定を開始します...");
+
+  // root_users への投入（service role = sql 接続。on conflict do nothing で冪等）
+  await sql`
+    insert into public.root_users (auth_user_id)
+    values (${rootUserId})
+    on conflict (auth_user_id) do nothing
+  `;
+  console.log(`[setup-dev] root_users: dev-root 投入: OK (auth_user_id=${rootUserId})`);
+
+  // user1（dev-owner-1 / oa ...0001 の owner 行）に line_user_id を設定（E2E 通知先）
+  // user2 は null のまま残す（skipped_no_line_id 経路の E2E 検証用 — 変更しない）
+  const lineUserIdUpdated = await sql`
+    update public.oa_members
+    set line_user_id = 'U00000000000000000000000000ownr1'
+    where auth_user_id = ${user1Id}
+      and oa_config_id = ${OA1_ID}
+      and role = 'owner'
+    returning id
+  `;
+  if (lineUserIdUpdated.length > 0) {
+    console.log(`[setup-dev] oa_members.line_user_id (user1 dev-oa owner): OK`);
+  } else {
+    console.error("[setup-dev] WARN: user1 の dev-oa owner 行が見つかりません（oa_members 投入後に再実行してください）");
+  }
+
+  const rootCount = await sql`select count(*) from public.root_users`;
+  console.log(`[setup-dev] root_users 合計: ${rootCount[0].count} 行`);
+
+  const lineUserCount = await sql`select count(*) from public.oa_members where line_user_id is not null`;
+  console.log(`[setup-dev] oa_members.line_user_id 非null 合計: ${lineUserCount[0].count} 行`);
 
   console.log("[setup-dev] セットアップ完了");
 } catch (err) {
