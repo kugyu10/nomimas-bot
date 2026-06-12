@@ -32,7 +32,8 @@ if (process.env.RLS_TEST === "1") {
   if (process.env.DEV_PROJECT_REF !== "cmsxvxtcdniqgvhxjqri") {
     throw new Error(
       `SAFETY ABORT: DEV_PROJECT_REF is "${process.env.DEV_PROJECT_REF}", expected "cmsxvxtcdniqgvhxjqri". ` +
-      "Integration tests must only run against the dev project."
+      "Integration tests must only run against the dev project. " +
+      "Run: set -a; source /path/to/env.dev; set +a"
     );
   }
 }
