@@ -61,6 +61,51 @@ describe("questionSchema", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  // WR-07: サイズ上限（LINE Quick Reply 制約と整合）
+  it("text が200文字ちょうどなら accept、201文字なら reject する", () => {
+    const ok = questionSchema.safeParse({
+      id: "q1",
+      text: "あ".repeat(200),
+      options: ["a"],
+    });
+    expect(ok.success).toBe(true);
+
+    const ng = questionSchema.safeParse({
+      id: "q1",
+      text: "あ".repeat(201),
+      options: ["a"],
+    });
+    expect(ng.success).toBe(false);
+  });
+
+  it("選択肢が20文字ちょうどなら accept、21文字なら reject する（LINE label 上限）", () => {
+    const ok = questionSchema.safeParse({
+      id: "q1",
+      text: "質問",
+      options: ["あ".repeat(20)],
+    });
+    expect(ok.success).toBe(true);
+
+    const ng = questionSchema.safeParse({
+      id: "q1",
+      text: "質問",
+      options: ["あ".repeat(21)],
+    });
+    expect(ng.success).toBe(false);
+  });
+
+  it("選択肢13件は accept、14件は reject する（LINE Quick Reply items 上限）", () => {
+    const make = (n: number) =>
+      Array.from({ length: n }, (_, i) => `選択肢${i + 1}`);
+
+    expect(
+      questionSchema.safeParse({ id: "q1", text: "質問", options: make(13) }).success,
+    ).toBe(true);
+    expect(
+      questionSchema.safeParse({ id: "q1", text: "質問", options: make(14) }).success,
+    ).toBe(false);
+  });
 });
 
 // ===========================================================
@@ -174,5 +219,49 @@ describe("oaSettingsSchema", () => {
       ],
     });
     expect(result.success).toBe(false);
+  });
+
+  // WR-07: id 一意性 + 件数上限
+  it("questions の id が重複している場合 reject する", () => {
+    const result = oaSettingsSchema.safeParse({
+      ...validInput,
+      questions: [
+        { id: "q_age", text: "質問1", options: ["A"] },
+        { id: "q_age", text: "質問2", options: ["B"] },
+      ],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.some((i) => i.message === "質問IDが重複しています"),
+      ).toBe(true);
+    }
+  });
+
+  it("questions の id がすべて一意なら accept する", () => {
+    const result = oaSettingsSchema.safeParse({
+      ...validInput,
+      questions: [
+        { id: "q1", text: "質問1", options: ["A"] },
+        { id: "q2", text: "質問2", options: ["B"] },
+      ],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("questions 20件は accept、21件は reject する", () => {
+    const make = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        id: `q${i + 1}`,
+        text: `質問${i + 1}`,
+        options: ["A"],
+      }));
+
+    expect(
+      oaSettingsSchema.safeParse({ ...validInput, questions: make(20) }).success,
+    ).toBe(true);
+    expect(
+      oaSettingsSchema.safeParse({ ...validInput, questions: make(21) }).success,
+    ).toBe(false);
   });
 });
