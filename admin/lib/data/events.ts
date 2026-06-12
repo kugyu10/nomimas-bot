@@ -136,7 +136,10 @@ export async function getEvent(
 }
 
 // ─────────────────────────────────────────────
-// insertEvent: イベント作成（events INSERT → event_platform_urls INSERT）
+// insertEvent: イベント作成（create_event_with_urls RPC — 単一トランザクション）
+// - WR-04: events INSERT と event_platform_urls INSERT を SECURITY INVOKER の
+//   plpgsql RPC にまとめ、URL 重複等で後段が失敗しても孤児 events 行を残さない
+// - RLS は invoker 権限のまま適用される（with check 有効）
 // ─────────────────────────────────────────────
 
 export async function insertEvent(
@@ -146,9 +149,8 @@ export async function insertEvent(
 ): Promise<{ id: string } | DataError> {
   const meetingAt = composeMeetingAt(values.event_date, values.meeting_time);
 
-  const { data: eventData, error: eventError } = await supabase
-    .from("events")
-    .insert({
+  const { data, error } = await supabase.rpc("create_event_with_urls", {
+    p_event: {
       oa_config_id: oaConfigId,
       title: values.title,
       event_date: values.event_date,
@@ -157,32 +159,27 @@ export async function insertEvent(
       fee: values.fee ?? null,
       venue_info: values.venue_info ?? null,
       confirm_days_before: values.confirm_days_before,
-    })
-    .select("id")
-    .single();
+    },
+    p_urls: values.platform_urls.map((pu) => ({
+      platform: pu.platform,
+      url: pu.url,
+    })),
+  });
 
-  if (eventError || !eventData) {
-    console.error("insertEvent error:", eventError);
+  if (error) {
+    console.error("insertEvent error:", error);
+    // 23505 = unique_violation: URL が既に他イベントに登録済み（再試行誘導しない明示メッセージ）
+    if (error.code === "23505") {
+      return { error: "このURLは既に他のイベントに登録されています" };
+    }
     return { error: "保存に失敗しました。入力内容を確認してもう一度お試しください" };
   }
 
-  // event_platform_urls を追加（min 1 は schema で保証済み）
-  const urlRows = values.platform_urls.map((pu) => ({
-    event_id: eventData.id,
-    platform: pu.platform,
-    url: pu.url,
-  }));
-
-  const { error: urlError } = await supabase
-    .from("event_platform_urls")
-    .insert(urlRows);
-
-  if (urlError) {
-    console.error("insertEvent url error:", urlError);
+  if (!data) {
     return { error: "保存に失敗しました。入力内容を確認してもう一度お試しください" };
   }
 
-  return { id: eventData.id };
+  return { id: data as string };
 }
 
 // ─────────────────────────────────────────────

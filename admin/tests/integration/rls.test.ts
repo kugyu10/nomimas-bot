@@ -355,6 +355,33 @@ describe("RPC: register_owner_by_identity", () => {
 });
 
 // ===========================================================
+// RPC: create_event_with_urls（03-REVIEW WR-04 — SECURITY INVOKER で RLS 適用）
+// ===========================================================
+describe("RPC: create_event_with_urls は invoker 権限で RLS が効く", () => {
+  it("user1 が dev-oa-2 のイベントを RPC 経由で作成 → エラー（with check 違反）+ 孤児なし", async () => {
+    const eventJson = JSON.stringify({
+      oa_config_id: OA2_ID,
+      title: "hacked-rpc-event",
+      event_date: "2026-12-31",
+      confirm_days_before: 7,
+    });
+    const urlsJson = JSON.stringify([
+      { platform: "twipla", url: "https://twipla.jp/events/999999901" },
+    ]);
+
+    await expect(
+      asUser(sql, user1Id, (tx) =>
+        tx`select public.create_event_with_urls(${eventJson}::jsonb, ${urlsJson}::jsonb)`,
+      ),
+    ).rejects.toThrow();
+
+    // RPC 全体が単一トランザクション: 孤児 events 行が残らない（postgres ロールで確認）
+    const orphans = await sql`select id from public.events where title = 'hacked-rpc-event'`;
+    expect(orphans.length).toBe(0);
+  });
+});
+
+// ===========================================================
 // co-owner スコープ（成功条件6）
 // ===========================================================
 describe("co-owner スコープ: user2 は dev-oa の co-owner", () => {

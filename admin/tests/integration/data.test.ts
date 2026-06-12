@@ -16,9 +16,13 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createClient } from "@supabase/supabase-js";
 import { getParticipantsWithAnswers } from "../../lib/data/participants";
+import { insertEvent } from "../../lib/data/events";
+import { connectDev } from "./rls.helpers";
 
 const DEV_PROJECT_REF = "cmsxvxtcdniqgvhxjqri";
+const OA1_ID = "00000000-0000-0000-0000-000000000001";
 const OA1_EVENT_ID = "00000000-0000-0000-0000-000000000002";
+const OA1_EPU_ID = "00000000-0000-0000-0000-000000000003";
 const OA2_EVENT_ID = "00000000-0000-0000-0000-000000000012";
 const PARTICIPANT_ID = "00000000-0000-0000-0000-000000000005";
 
@@ -96,5 +100,97 @@ describe("getParticipantsWithAnswers", () => {
     const rows = await getParticipantsWithAnswers(supabaseUser1, OA2_EVENT_ID);
     // RLS により user1 (OA-1 owner) は OA-2 のデータを見られない → 0 行
     expect(rows).toHaveLength(0);
+  });
+});
+
+// ===========================================================
+// insertEvent — create_event_with_urls RPC（03-REVIEW WR-04: アトミック性）
+// ===========================================================
+describe("insertEvent (create_event_with_urls RPC)", () => {
+  const baseValues = {
+    title: "",
+    event_date: "2026-12-30",
+    meeting_time: "18:30",
+    meeting_place: "テスト集合場所",
+    fee: "1000",
+    venue_info: "",
+    confirm_days_before: 3 as const,
+    platform_urls: [] as Array<{ platform: "twipla"; url: string }>,
+  };
+
+  it("重複URL → 専用エラーを返し、孤児 events 行を残さない（アトミック）", async () => {
+    // seed 済み URL（dev-epu …0003）を取得して衝突させる
+    const { data: epu, error: epuErr } = await supabaseUser1
+      .from("event_platform_urls")
+      .select("url")
+      .eq("id", OA1_EPU_ID)
+      .single();
+    expect(epuErr).toBeNull();
+    const duplicateUrl = (epu as unknown as { url: string }).url;
+
+    const title = "wr04-orphan-check";
+    const result = await insertEvent(supabaseUser1, OA1_ID, {
+      ...baseValues,
+      title,
+      platform_urls: [{ platform: "twipla", url: duplicateUrl }],
+    });
+
+    // 23505 → 明示メッセージ
+    expect("error" in result).toBe(true);
+    if ("error" in result) {
+      expect(result.error).toBe("このURLは既に他のイベントに登録されています");
+    }
+
+    // 旧実装の孤児（events 行のみ commit 済み）が残っていないこと
+    const { data: orphans } = await supabaseUser1
+      .from("events")
+      .select("id")
+      .eq("title", title);
+    expect(orphans ?? []).toHaveLength(0);
+  });
+
+  it("新規URL → events + event_platform_urls が両方作成される（成功後クリーンアップ）", async () => {
+    const title = `wr04-success-${Date.now()}`;
+    const uniqueUrl = `https://twipla.jp/events/9${Date.now() % 100000000}`;
+
+    const result = await insertEvent(supabaseUser1, OA1_ID, {
+      ...baseValues,
+      title,
+      platform_urls: [{ platform: "twipla", url: uniqueUrl }],
+    });
+
+    expect("id" in result).toBe(true);
+    const eventId = (result as { id: string }).id;
+
+    try {
+      // meeting_at が JST 18:30 として保存されている（composeMeetingAt 経由）
+      const { data: ev } = await supabaseUser1
+        .from("events")
+        .select("id, title, meeting_at")
+        .eq("id", eventId)
+        .single();
+      expect(ev).toBeDefined();
+      const evRow = ev as unknown as { title: string; meeting_at: string };
+      expect(evRow.title).toBe(title);
+      expect(new Date(evRow.meeting_at).getTime()).toBe(
+        new Date("2026-12-30T18:30:00+09:00").getTime(),
+      );
+
+      // URL 行も同一トランザクションで作成済み
+      const { data: urls } = await supabaseUser1
+        .from("event_platform_urls")
+        .select("url")
+        .eq("event_id", eventId);
+      const urlRows = (urls ?? []) as unknown as Array<{ url: string }>;
+      expect(urlRows.map((u) => u.url)).toContain(uniqueUrl);
+    } finally {
+      // DELETE ポリシーは無いので postgres ロールで掃除（epu は cascade）
+      const sql = connectDev();
+      try {
+        await sql`delete from public.events where id = ${eventId}`;
+      } finally {
+        await sql.end();
+      }
+    }
   });
 });

@@ -267,3 +267,53 @@ end $$;
 
 revoke all on function public.register_owner_by_identity() from public, anon;
 grant execute on function public.register_owner_by_identity() to authenticated;
+
+-- =============================================================
+-- Phase 3 (03-REVIEW WR-04): イベント作成のアトミック化RPC
+-- create_event_with_urls(): events INSERT + event_platform_urls INSERT を
+-- 1関数 = 1トランザクションで実行する。
+-- 旧実装は2文に分かれており、URL重複（unique制約 23505）で2文目が失敗すると
+-- 孤児 events 行が残った（DELETEポリシーが無いためUIから掃除不能）。
+-- SECURITY INVOKER: RLS は呼び出しユーザー権限のまま適用される
+-- （events / event_platform_urls の INSERT with check がそのまま効く）
+-- =============================================================
+
+create or replace function public.create_event_with_urls(
+  p_event jsonb,
+  p_urls jsonb
+)
+returns uuid
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  v_event_id uuid;
+  v_url jsonb;
+begin
+  insert into public.events
+    (oa_config_id, title, event_date, meeting_at,
+     meeting_place, fee, venue_info, confirm_days_before)
+  values (
+    (p_event ->> 'oa_config_id')::uuid,
+    p_event ->> 'title',
+    (p_event ->> 'event_date')::date,
+    (p_event ->> 'meeting_at')::timestamptz,
+    p_event ->> 'meeting_place',
+    p_event ->> 'fee',
+    p_event ->> 'venue_info',
+    coalesce((p_event ->> 'confirm_days_before')::integer, 7)
+  )
+  returning id into v_event_id;
+
+  for v_url in select jsonb_array_elements(p_urls)
+  loop
+    insert into public.event_platform_urls (event_id, platform, url)
+    values (v_event_id, v_url ->> 'platform', v_url ->> 'url');
+  end loop;
+
+  return v_event_id;
+end $$;
+
+revoke all on function public.create_event_with_urls(jsonb, jsonb) from public, anon;
+grant execute on function public.create_event_with_urls(jsonb, jsonb) to authenticated;
