@@ -9,7 +9,7 @@
  * - テンプレート保存 Dialog（04-UI-SPEC §1）
  * - テンプレート適用 Select + AlertDialog（04-UI-SPEC §2）
  */
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -47,6 +47,14 @@ export function QuestionListEditor({
 }: QuestionListEditorProps) {
   const questions = value;
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
+  // 04-REVIEW IN-03: auto-dismiss タイマーを保持し unmount 時に確実に解除する
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (successTimerRef.current) clearTimeout(successTimerRef.current);
+    };
+  }, []);
 
   const addQuestion = useCallback(() => {
     onChange([
@@ -144,7 +152,9 @@ export function QuestionListEditor({
 
   const handleSaveSuccess = useCallback(() => {
     setSaveSuccessMessage("テンプレートを保存しました");
-    setTimeout(() => setSaveSuccessMessage(null), 4000);
+    // 連続保存時は前のタイマーを解除してから張り直す（IN-03: タイマー累積防止）
+    if (successTimerRef.current) clearTimeout(successTimerRef.current);
+    successTimerRef.current = setTimeout(() => setSaveSuccessMessage(null), 4000);
   }, []);
 
   const handleApplyTemplate = useCallback(
