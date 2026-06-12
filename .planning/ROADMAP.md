@@ -121,7 +121,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 04-01-PLAN.md — スキーマ拡張（line_user_id/root_users/templates/notification_logs + is_root() OR拡張）+ notify純関数 + [BLOCKING] dev再適用 [Wave 1]
+- [x] 04-01-PLAN.md — スキーマ拡張（line_user_id/root_users/templates/notification_logs + is_root() OR拡張）+ notify純関数 + [BLOCKING] dev再適用 [Wave 1]
 
 **Wave 2** *(blocked on Wave 1 completion — 並列実行可)*
 
@@ -141,7 +141,7 @@ Plans:
 | 1. 基盤構築 + スクレイピング検証 | 3/3 | Complete   | 2026-06-11 |
 | 2. LINE Botコア機能 | 4/4 | Complete   | 2026-06-11 |
 | 3. 管理画面 | 5/5 | Complete   | 2026-06-12 |
-| 4. 通知 + 統合仕上げ | 0/4 | Not started | - |
+| 4. 通知 + 統合仕上げ | 1/4 | In Progress|  |
 
 ## Coverage
 
