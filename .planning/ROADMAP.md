@@ -92,7 +92,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 03-02-PLAN.md — admin/スキャフォールド + @supabase/ssr認証（X OAuth/モック二経路・ルート保護）+ OAセレクタ付きシェル [Wave 2]
+- [x] 03-02-PLAN.md — admin/スキャフォールド + @supabase/ssr認証（X OAuth/モック二経路・ルート保護）+ OAセレクタ付きシェル [Wave 2]
 
 **Wave 3** *(blocked on Wave 2 completion — 並列実行可)*
 
@@ -126,7 +126,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. 基盤構築 + スクレイピング検証 | 3/3 | Complete   | 2026-06-11 |
 | 2. LINE Botコア機能 | 4/4 | Complete   | 2026-06-11 |
-| 3. 管理画面 | 1/5 | In Progress|  |
+| 3. 管理画面 | 2/5 | In Progress|  |
 | 4. 通知 + 統合仕上げ | 0/? | Not started | - |
 
 ## Coverage
