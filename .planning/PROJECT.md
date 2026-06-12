@@ -15,15 +15,16 @@ Twiplaの参加者リスト取得から最終確認の配信・回答収集ま�
 ### Validated
 
 - **EVENT-02** — Phase 1で実証（Twiplaスクレイパー: フィクスチャTDD + 実URL + dev DB保存まで機械検証）
+- **LINE-01 / LINE-02 / LINE-03** — Phase 2で実証（pg_cron配信→1問1答→answers保存のフルE2E。実LINE受信体験のみHUMAN-UAT待ち）
 
 ### Active
 
 - [ ] **AUTH-01**: 管理者はX(Twitter) OAuthで管理画面にログインできる
 - [ ] **EVENT-01**: 管理者はイベントを作成できる（複数のイベントプラットフォームURL、集合時刻・場所・参加費・店情報を登録）
 - [x] **EVENT-02**: 管理者はイベントプラットフォームURLから参加者リストを自動取得できる（v1はTwiplaスクレイピング、プロバイダー抽象化）— Validated in Phase 1（実URL E2E検証済み）
-- [ ] **LINE-01**: システムはイベントN日前に未確認の参加者へLINEで最終確認メッセージを自動配信できる
-- [ ] **LINE-02**: 最終確認は1問1答形式で、ステートマシンで定型質問を順番に投げられる
-- [ ] **LINE-03**: 参加者の回答がSupabaseに保存される
+- [x] **LINE-01**: システムはイベントN日前に未確認の参加者へLINEで最終確認メッセージを自動配信できる
+- [x] **LINE-02**: 最終確認は1問1答形式で、ステートマシンで定型質問を順番に投げられる
+- [x] **LINE-03**: 参加者の回答がSupabaseに保存される
 - [ ] **ADMIN-01**: 管理者は回答状況（誰が回答済み・未回答）を一覧確認できる
 - [ ] **ADMIN-02**: 管理者はLINEユーザーとイベントプラットフォームの参加者名を手動で紐付けられる
 - [ ] **NOTIF-01**: 開催2日前以降、メンバーの出欠・最終確認に更新があった際、owner/co-ownerにLINEで都度通知する
@@ -109,4 +110,4 @@ Twiplaの参加者リスト取得から最終確認の配信・回答収集ま�
 | dev/prodでSupabaseプロジェクト分離 | 本番データに影響を与えずに検証 | — Pending |
 
 ---
-*Last updated: 2026-06-12 after Phase 1 completion（基盤構築 + スクレイピング検証 — DB/Edge Functions/LINE Webhook土台がdevで稼働）*
+*Last updated: 2026-06-12 after Phase 2 completion（LINE Botコア機能 — cron配信・1問1答ステートマシン・回答保存がdevでE2E動作）*
