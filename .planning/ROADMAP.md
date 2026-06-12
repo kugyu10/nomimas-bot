@@ -82,8 +82,26 @@ Plans:
   5. LINE OAごとに定型文・質問内容・管理者Twitter IDを設定・保存でき、複数OAを1つの管理画面で切り替え管理できる
   6. owner/co-ownerは自分に紐付くOA・イベントのみ閲覧でき、他者のデータにはアクセスできない（RLSポリシーが自動テストで検証できる）
 
-**Plans**: TBD
+**Plans**: 5 plans
 **UI hint**: yes
+
+Plans:
+**Wave 1**
+
+- [ ] 03-01-PLAN.md — スキーマ/RLS本実装（書込ポリシー+owner登録RPC+IN-05）+ seed/setup-dev拡張 + [BLOCKING] dev再適用 [Wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 03-02-PLAN.md — admin/スキャフォールド + @supabase/ssr認証（X OAuth/モック二経路・ルート保護）+ OAセレクタ付きシェル [Wave 2]
+
+**Wave 3** *(blocked on Wave 2 completion — 並列実行可)*
+
+- [ ] 03-03-PLAN.md — イベントCRUD + 参加者取得トリガー + 参加者タブ（EVENT-01） [Wave 3]
+- [ ] 03-04-PLAN.md — OA設定ページ（OA-01）+ RLSマトリクス/モック認証テスト（成功条件1・6） [Wave 3]
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 03-05-PLAN.md — 回答状況タブ（ADMIN-01）+ 手動紐付けUI（ADMIN-02）+ フェーズゲート [Wave 4]
 
 ### Phase 4: 通知 + 統合仕上げ
 
