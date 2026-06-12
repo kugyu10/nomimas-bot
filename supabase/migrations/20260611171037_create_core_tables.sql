@@ -10,6 +10,8 @@ create table public.oa_configs (
   line_channel_id text,
   admin_twitter_id text,
   greeting_message text,
+  -- OA-01: UI設定画面の完了メッセージ（定型文セクション）の保存先
+  completion_message text,
   -- D-01: 質問定義はJSONB配列。各要素は { "id": string, "text": string, "options": string[] }
   questions jsonb not null default '[]'::jsonb,
   updated_at timestamptz not null default now(),
@@ -25,10 +27,11 @@ create unique index oa_configs_line_channel_id_key
 -- OA管理者メンバー（owner / co-owner）
 -- OA-02: 複数のLINE OAを1つの管理画面で管理できる（権限: root/owner/co-ownerの3段階）
 -- rootはauth.usersのapp_metadataで表現予定（Phase 3/4で本格運用）
+-- IN-05: auth_user_id は auth.users への FK（on delete cascade — ユーザー削除でメンバー行も消える）
 create table public.oa_members (
   id uuid primary key default gen_random_uuid(),
   oa_config_id uuid not null references public.oa_configs(id) on delete cascade,
-  auth_user_id uuid not null,
+  auth_user_id uuid not null references auth.users(id) on delete cascade,
   role text not null check (role in ('owner', 'co-owner')),
   created_at timestamptz not null default now(),
   unique(oa_config_id, auth_user_id)
