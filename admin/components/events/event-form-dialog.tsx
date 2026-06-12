@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/field";
 import {
   eventFormSchema,
+  extractTimeJst,
   type EventFormValues,
   CONFIRM_DAYS_OPTIONS,
 } from "@/lib/schemas/event";
@@ -62,20 +63,14 @@ interface EventFormDialogProps {
   onSuccess?: () => void;
 }
 
-/** meeting_at の timestamptz から HH:mm を抽出する */
-function extractTime(meetingAt: string | null | undefined): string {
-  if (!meetingAt) return "";
-  // "2026-06-15T18:30:00+09:00" → "18:30"
-  const match = meetingAt.match(/T(\d{2}:\d{2})/);
-  return match ? match[1] : "";
-}
-
 /** イベント詳細から EventFormValues を組み立てる */
+// meeting_at は PostgREST が UTC で返すため extractTimeJst で JST に変換して
+// HH:mm を取り出す（WR-01: 文字列直読みは -9h の往復破壊を起こす）
 function eventToFormValues(event: EventDetailProp): EventFormValues {
   return {
     title: event.title,
     event_date: event.event_date ?? "",
-    meeting_time: extractTime(event.meeting_at),
+    meeting_time: extractTimeJst(event.meeting_at),
     meeting_place: event.meeting_place ?? "",
     fee: event.fee ?? "",
     venue_info: event.venue_info ?? "",

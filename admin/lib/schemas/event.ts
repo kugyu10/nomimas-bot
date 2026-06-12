@@ -78,3 +78,25 @@ export function composeMeetingAt(
   if (!time || time.trim() === "") return null;
   return `${date}T${time}:00+09:00`;
 }
+
+/**
+ * extractTimeJst: timestamptz 文字列から JST の HH:mm を取り出す純関数
+ * （composeMeetingAt の逆方向 — 編集フォームの初期値用）
+ *
+ * PostgREST は timestamptz を DB タイムゾーン（Supabase は UTC）で返すため、
+ * "2026-06-15T09:30:00+00:00"（= 18:30 JST）のような値が来る。
+ * 文字列の HH:mm を直接読むとUTC時刻を JST として再保存し -9h ずれるため、
+ * 必ず Date 経由で Asia/Tokyo に変換してから抽出する（03-REVIEW WR-01）。
+ */
+export function extractTimeJst(meetingAt: string | null | undefined): string {
+  if (!meetingAt) return "";
+  const d = new Date(meetingAt);
+  if (isNaN(d.getTime())) return "";
+  // JST 固定で HH:mm を取り出す（composeMeetingAt の +09:00 と対称）
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(d);
+}

@@ -6,6 +6,7 @@ import {
   platformUrlSchema,
   eventFormSchema,
   composeMeetingAt,
+  extractTimeJst,
   CONFIRM_DAYS_OPTIONS,
 } from "@/lib/schemas/event";
 
@@ -221,5 +222,52 @@ describe("composeMeetingAt", () => {
     expect(composeMeetingAt("2026-12-31", "23:59")).toBe(
       "2026-12-31T23:59:00+09:00"
     );
+  });
+});
+
+// ─────────────────────────────────────────────
+// extractTimeJst（WR-01: UTC シリアライズ → JST HH:mm）
+// ─────────────────────────────────────────────
+describe("extractTimeJst", () => {
+  it("PostgREST の UTC シリアライズ（+00:00）から JST の HH:mm を取り出す", () => {
+    // 18:30 JST = 09:30 UTC
+    expect(extractTimeJst("2026-06-15T09:30:00+00:00")).toBe("18:30");
+  });
+
+  it("+09:00 形式（composeMeetingAt 出力）はそのままの HH:mm を返す", () => {
+    expect(extractTimeJst("2026-06-15T18:30:00+09:00")).toBe("18:30");
+  });
+
+  it("日付をまたぐケース: UTC 15:30 = JST 翌日 00:30", () => {
+    expect(extractTimeJst("2026-06-15T15:30:00+00:00")).toBe("00:30");
+  });
+
+  it("null / undefined / 空文字は空文字を返す", () => {
+    expect(extractTimeJst(null)).toBe("");
+    expect(extractTimeJst(undefined)).toBe("");
+    expect(extractTimeJst("")).toBe("");
+  });
+
+  it("パース不能な文字列は空文字を返す", () => {
+    expect(extractTimeJst("garbage")).toBe("");
+  });
+
+  it("編集ラウンドトリップ: UTC 返却値 → extractTimeJst → composeMeetingAt で meeting_at が完全保存される", () => {
+    // DB 保存値 18:30 JST が PostgREST から 09:30 UTC で返ってくる
+    const fromPostgrest = "2026-06-15T09:30:00+00:00";
+    const recomposed = composeMeetingAt("2026-06-15", extractTimeJst(fromPostgrest));
+    expect(recomposed).toBe("2026-06-15T18:30:00+09:00");
+    // 同一時刻であること（-9h ずれない）
+    expect(new Date(recomposed!).getTime()).toBe(new Date(fromPostgrest).getTime());
+  });
+
+  it("編集ラウンドトリップを複数回繰り返しても時刻が不変（冪等）", () => {
+    let current = "2026-06-15T09:30:00+00:00"; // 18:30 JST
+    const expected = new Date(current).getTime();
+    for (let i = 0; i < 3; i++) {
+      const recomposed = composeMeetingAt("2026-06-15", extractTimeJst(current));
+      expect(new Date(recomposed!).getTime()).toBe(expected);
+      current = recomposed!;
+    }
   });
 });
