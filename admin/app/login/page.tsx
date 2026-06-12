@@ -10,7 +10,13 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  // OAuthコールバック失敗（/login?error=auth）はサーバーリダイレクトで戻るため初期値で拾う
+  const [error, setError] = useState<string | null>(() =>
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("error") === "auth"
+      ? "ログインに失敗しました。もう一度お試しください"
+      : null
+  );
   const [loading, setLoading] = useState(false);
 
   const isMock = process.env.NEXT_PUBLIC_AUTH_MOCK === "1";

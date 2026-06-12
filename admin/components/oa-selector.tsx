@@ -2,7 +2,7 @@
 
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -46,10 +46,8 @@ export function OaSelector({ myOas, selectedOaId }: OaSelectorProps) {
         aria-label={isPending ? "OAを切替中..." : undefined}
       >
         <SelectValue placeholder="OAを選択..." />
-        {isPending ? (
+        {isPending && (
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-        ) : (
-          <ChevronDown className="h-4 w-4 opacity-50" />
         )}
       </SelectTrigger>
       <SelectContent>

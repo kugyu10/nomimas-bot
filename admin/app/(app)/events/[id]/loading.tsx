@@ -2,7 +2,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export default function EventDetailLoading() {
   return (
-    <div className="space-y-4 p-6" aria-busy="true">
+    <div className="space-y-4" aria-busy="true">
       {/* Title area */}
       <Skeleton className="h-7 w-48" aria-hidden="true" />
       {/* Subtitle */}
