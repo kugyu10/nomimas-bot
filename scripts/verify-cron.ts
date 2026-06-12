@@ -83,7 +83,7 @@ try {
   console.log("\n[verify-cron] (3) cron.job_run_details 直近3件（参考）...");
   try {
     const details = await sql<
-      { jobid: unknown; runid: unknown; job_pid: unknown; database: string; username: string; command: string; status: string; return_message: string; start_time: Date; end_time: Date }[]
+      { jobid: unknown; runid: unknown; status: string; return_message: string; start_time: Date; end_time: Date }[]
     >`
       select jobid, runid, status, return_message, start_time, end_time
       from cron.job_run_details
@@ -102,9 +102,9 @@ try {
   }
 
   // -------------------------------------------------------------------------
-  // (3) 参考情報: net._http_response 直近3件
+  // (4) 参考情報: net._http_response 直近3件
   // -------------------------------------------------------------------------
-  console.log("\n[verify-cron] (3) net._http_response 直近3件（参考）...");
+  console.log("\n[verify-cron] (4) net._http_response 直近3件（参考）...");
   try {
     const responses = await sql<
       { id: unknown; status_code: number; timed_out: boolean }[]
