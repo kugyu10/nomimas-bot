@@ -36,6 +36,10 @@ export async function updateSession(request: NextRequest) {
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
+    // IN-02: 元のパスを next に引き継ぐ（login → callback が '/' 始まりのみ許可して検証済み）
+    if (request.nextUrl.pathname !== "/") {
+      url.searchParams.set("next", request.nextUrl.pathname);
+    }
     return NextResponse.redirect(url);
   }
 

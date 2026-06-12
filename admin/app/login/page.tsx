@@ -46,7 +46,9 @@ export default function LoginPage() {
     }
     // モック経路の自動登録 (email identity では 0 行の no-op — 経路統一)
     await supabase.rpc("register_owner_by_identity");
-    window.location.href = "/events";
+    // IN-02: ディープリンク復帰（origin 相対パスのみ許可 — callback と同一の検証）
+    const next = new URLSearchParams(window.location.search).get("next") ?? "/events";
+    window.location.href = next.startsWith("/") ? next : "/events";
   }
 
   return (
