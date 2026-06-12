@@ -27,13 +27,16 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { QuestionListEditor } from "@/components/oa/question-list-editor";
 import { oaSettingsSchema, type OaSettingsInput } from "@/lib/schemas/oa";
 import { saveOaSettings } from "@/lib/actions/oa";
+import { saveQuestionTemplate } from "@/lib/actions/templates";
 import type { OaConfigDetail } from "@/lib/data/oa";
+import type { QuestionTemplate } from "@/lib/data/templates";
 
 interface OaSettingsFormProps {
   oaConfig: OaConfigDetail;
+  templates?: QuestionTemplate[];
 }
 
-export function OaSettingsForm({ oaConfig }: OaSettingsFormProps) {
+export function OaSettingsForm({ oaConfig, templates }: OaSettingsFormProps) {
   const [saveResult, setSaveResult] = useState<{ success: boolean; message: string } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -193,6 +196,9 @@ export function OaSettingsForm({ oaConfig }: OaSettingsFormProps) {
               <QuestionListEditor
                 value={field.value ?? []}
                 onChange={field.onChange}
+                oaConfigId={oaConfig.id}
+                templates={templates}
+                saveTemplateAction={saveQuestionTemplate}
               />
             )}
           />
