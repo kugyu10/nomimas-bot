@@ -15,13 +15,35 @@ alter table public.participants enable row level security;
 alter table public.answers enable row level security;
 
 -- =============================================================
+-- Phase 4: is_root() 関数（SELECT ポリシーより前に定義必要）
+-- root_users テーブルを参照して root 権限を判定
+-- SECURITY DEFINER + search_path='' でハイジャック防止（T-04-02）
+-- register_owner_by_identity と同規約
+-- =============================================================
+
+create or replace function public.is_root()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1 from public.root_users r
+    where r.auth_user_id = (select auth.uid())
+  )
+$$;
+revoke all on function public.is_root() from public, anon;
+grant execute on function public.is_root() to authenticated;
+
+-- =============================================================
 -- SELECTポリシー（oa_members経由でauth.uid()を判定）
 -- ポリシー名: <table>_oa_member_select で統一
 -- to authenticated を指定（未認証ユーザーはdeny-by-default）
 -- (select auth.uid()) でinitplan最適化（行ごと再評価を避ける）
 -- =============================================================
 
--- oa_configs: 自分がoa_membersに存在するOAのみ
+-- oa_configs: 自分がoa_membersに存在するOAのみ（root は全OA参照可 — OA-02完成）
 create policy oa_configs_oa_member_select
   on public.oa_configs
   for select
@@ -32,16 +54,20 @@ create policy oa_configs_oa_member_select
       where m.oa_config_id = oa_configs.id
         and m.auth_user_id = (select auth.uid())
     )
+    or (select public.is_root())
   );
 
--- oa_members: 自分自身の行のみ
+-- oa_members: 自分自身の行のみ（root は全メンバー参照可 — OA-02完成）
 create policy oa_members_oa_member_select
   on public.oa_members
   for select
   to authenticated
-  using (auth_user_id = (select auth.uid()));
+  using (
+    auth_user_id = (select auth.uid())
+    or (select public.is_root())
+  );
 
--- events: 自テーブルのoa_config_id経由でoa_membersと結合
+-- events: 自テーブルのoa_config_id経由でoa_membersと結合（root は全イベント参照可）
 create policy events_oa_member_select
   on public.events
   for select
@@ -52,9 +78,10 @@ create policy events_oa_member_select
       where m.oa_config_id = events.oa_config_id
         and m.auth_user_id = (select auth.uid())
     )
+    or (select public.is_root())
   );
 
--- event_platform_urls: events をjoinしてoa_members確認
+-- event_platform_urls: events をjoinしてoa_members確認（root は全参照可）
 create policy event_platform_urls_oa_member_select
   on public.event_platform_urls
   for select
@@ -66,9 +93,10 @@ create policy event_platform_urls_oa_member_select
       where e.id = event_platform_urls.event_id
         and m.auth_user_id = (select auth.uid())
     )
+    or (select public.is_root())
   );
 
--- line_users: 自テーブルのoa_config_id経由でoa_membersと結合
+-- line_users: 自テーブルのoa_config_id経由でoa_membersと結合（root は全参照可）
 create policy line_users_oa_member_select
   on public.line_users
   for select
@@ -79,9 +107,10 @@ create policy line_users_oa_member_select
       where m.oa_config_id = line_users.oa_config_id
         and m.auth_user_id = (select auth.uid())
     )
+    or (select public.is_root())
   );
 
--- participants: event_platform_urls → events をjoinしてoa_members確認
+-- participants: event_platform_urls → events をjoinしてoa_members確認（root は全参照可）
 create policy participants_oa_member_select
   on public.participants
   for select
@@ -94,9 +123,10 @@ create policy participants_oa_member_select
       where epu.id = participants.event_platform_url_id
         and m.auth_user_id = (select auth.uid())
     )
+    or (select public.is_root())
   );
 
--- answers: participants → event_platform_urls → events をjoinしてoa_members確認
+-- answers: participants → event_platform_urls → events をjoinしてoa_members確認（root は全参照可）
 create policy answers_oa_member_select
   on public.answers
   for select
@@ -110,6 +140,7 @@ create policy answers_oa_member_select
       where p.id = answers.participant_id
         and m.auth_user_id = (select auth.uid())
     )
+    or (select public.is_root())
   );
 
 -- =============================================================
@@ -321,3 +352,54 @@ end $$;
 
 revoke all on function public.create_event_with_urls(jsonb, jsonb) from public, anon;
 grant execute on function public.create_event_with_urls(jsonb, jsonb) to authenticated;
+
+-- =============================================================
+-- Phase 4: root権限・質問テンプレート・通知ログのRLSポリシー
+-- =============================================================
+
+-- Phase 4 追加テーブルのRLS有効化
+alter table public.root_users enable row level security;
+-- root_users: ポリシーなし（deny-by-default）— authenticated から不可視（T-04-01）
+-- root の存在自体を秘匿。投入は setup-dev（service role）のみ — 権限昇格防止
+
+alter table public.question_templates enable row level security;
+alter table public.notification_logs enable row level security;
+
+-- =============================================================
+-- question_templates ポリシー
+-- SELECT: oa_members チェーン + root（クロスOA適用 — RLS が自動充足）
+-- INSERT: oa_members チェーンのみ（root は閲覧専用 — T-04-05 SELECT-only locked）
+-- UPDATE/DELETE: ポリシーなし（deny-by-default — v1 は保存+適用のみ）
+-- =============================================================
+
+create policy question_templates_oa_member_select
+  on public.question_templates for select to authenticated
+  using (
+    exists (select 1 from public.oa_members m
+      where m.oa_config_id = question_templates.oa_config_id
+        and m.auth_user_id = (select auth.uid()))
+    or (select public.is_root())
+  );
+
+create policy question_templates_oa_member_insert
+  on public.question_templates for insert to authenticated
+  with check (
+    exists (select 1 from public.oa_members m
+      where m.oa_config_id = question_templates.oa_config_id
+        and m.auth_user_id = (select auth.uid()))
+  );
+
+-- =============================================================
+-- notification_logs ポリシー
+-- SELECT のみ（oa_members チェーン + root）
+-- 書込ポリシーなし — service role の Edge Functions のみ INSERT（answers/line_users と同方針）
+-- =============================================================
+
+create policy notification_logs_oa_member_select
+  on public.notification_logs for select to authenticated
+  using (
+    exists (select 1 from public.oa_members m
+      where m.oa_config_id = notification_logs.oa_config_id
+        and m.auth_user_id = (select auth.uid()))
+    or (select public.is_root())
+  );
