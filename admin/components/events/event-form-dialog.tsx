@@ -33,6 +33,12 @@ import {
   FieldGroup,
 } from "@/components/ui/field";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   eventFormSchema,
   extractTimeJst,
   type EventFormValues,
@@ -312,20 +318,28 @@ export function EventFormDialog({
                     </div>
                     {/* 削除ボタン（min 1 を維持） */}
                     {fields.length > 1 && (
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => remove(index)}
-                        className="shrink-0 text-muted-foreground"
-                      >
-                        <TrashIcon className="size-4" />
-                      </Button>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => remove(index)}
+                              aria-label="URLを削除"
+                              className="shrink-0 text-muted-foreground"
+                            >
+                              <TrashIcon className="size-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>URLを削除</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     )}
                   </div>
                 ))}
               </div>
-              {/* + URL 追加ボタン */}
+              {/* URL 追加ボタン */}
               <Button
                 type="button"
                 size="sm"
@@ -334,7 +348,7 @@ export function EventFormDialog({
                 onClick={() => append({ platform: "twipla", url: "" })}
               >
                 <PlusIcon className="size-4 mr-1" />
-                +URL追加
+                URL追加
               </Button>
               {errors.platform_urls?.root && (
                 <p className="text-xs text-destructive">
@@ -371,7 +385,6 @@ export function EventFormDialog({
             <Button
               type="submit"
               disabled={!isValid || isPending}
-              className="bg-zinc-900 text-white hover:bg-zinc-800"
             >
               {isPending ? "保存中..." : "イベントを保存"}
             </Button>

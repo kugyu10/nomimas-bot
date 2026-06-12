@@ -1,7 +1,7 @@
 "use client";
 // admin/components/events/events-table.tsx
 // イベント一覧テーブル（read-only）
-// UI-SPEC: 列 = イベント名 | 開催日 | 参加者数 | 回答済み / 総数 | ステータス | 操作
+// UI-SPEC: 列 = イベント名 | 開催日 | 参加者数 | 回答済み / 総数 | 操作
 // 行高 40px（compact: size="sm"）、破壊的操作なし
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -32,7 +32,7 @@ export function EventsTable({ events }: EventsTableProps) {
         {/* UI-SPEC Copywriting Contract: empty state */}
         <p className="text-base font-semibold text-foreground">まだイベントがありません</p>
         <p className="mt-2 text-sm text-muted-foreground">
-          右上の「+ イベントを作成」からイベントを追加してください
+          右上の「イベントを作成」からイベントを追加してください
         </p>
       </div>
     );
@@ -48,7 +48,6 @@ export function EventsTable({ events }: EventsTableProps) {
             <TableHead>開催日</TableHead>
             <TableHead className="text-right">参加者数</TableHead>
             <TableHead className="text-right">回答済み / 総数</TableHead>
-            <TableHead>ステータス</TableHead>
             <TableHead className="text-right">操作</TableHead>
           </TableRow>
         </TableHeader>
@@ -60,9 +59,6 @@ export function EventsTable({ events }: EventsTableProps) {
               <TableCell className="text-right">{event.participant_count}</TableCell>
               <TableCell className="text-right">
                 {event.answered_count} / {event.participant_count}
-              </TableCell>
-              <TableCell>
-                <span className="text-sm text-muted-foreground">—</span>
               </TableCell>
               <TableCell className="text-right">
                 {/* UI-SPEC: "詳細" link button size="sm" */}
