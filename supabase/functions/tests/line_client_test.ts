@@ -11,7 +11,7 @@
  */
 
 import { assertEquals, assertRejects } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { pushMessage, replyMessage } from "../_shared/line/client.ts";
+import { getLineProfile, pushMessage, replyMessage } from "../_shared/line/client.ts";
 
 // ダミートークン（実送信しない）
 const DUMMY_TOKEN = "test-token";
@@ -108,4 +108,55 @@ Deno.test("replyMessage: 6件を渡すと throw", async () => {
     Error,
     "messages",
   );
+});
+
+// --- getLineProfile テスト（fetch をスタブ。--allow-read のみで実行可・実ネットなし） ---
+
+const PROFILE_USER = "U0123456789abcdef0123456789abcdef0";
+
+Deno.test("getLineProfile: 200 + displayName を返すと表示名を取得できる", async () => {
+  const orig = globalThis.fetch;
+  globalThis.fetch = (): Promise<Response> =>
+    Promise.resolve(
+      new Response(JSON.stringify({ displayName: "くぎゅう10", pictureUrl: "https://example.com/p.png" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+  try {
+    const p = await getLineProfile(DUMMY_TOKEN, PROFILE_USER);
+    assertEquals(p?.displayName, "くぎゅう10");
+    assertEquals(p?.pictureUrl, "https://example.com/p.png");
+  } finally {
+    globalThis.fetch = orig;
+  }
+});
+
+Deno.test("getLineProfile: 非2xx は null（throw しない — フォロー処理を止めない）", async () => {
+  const orig = globalThis.fetch;
+  globalThis.fetch = (): Promise<Response> =>
+    Promise.resolve(new Response("forbidden", { status: 403 }));
+  try {
+    const p = await getLineProfile(DUMMY_TOKEN, PROFILE_USER);
+    assertEquals(p, null);
+  } finally {
+    globalThis.fetch = orig;
+  }
+});
+
+Deno.test("getLineProfile: displayName 欠落レスポンスは null", async () => {
+  const orig = globalThis.fetch;
+  globalThis.fetch = (): Promise<Response> =>
+    Promise.resolve(
+      new Response(JSON.stringify({ pictureUrl: "https://example.com/p.png" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+  try {
+    const p = await getLineProfile(DUMMY_TOKEN, PROFILE_USER);
+    assertEquals(p, null);
+  } finally {
+    globalThis.fetch = orig;
+  }
 });

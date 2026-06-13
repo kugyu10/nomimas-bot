@@ -19,6 +19,7 @@ const MIN_MESSAGES = 1;
 
 const LINE_PUSH_ENDPOINT = "https://api.line.me/v2/bot/message/push";
 const LINE_REPLY_ENDPOINT = "https://api.line.me/v2/bot/message/reply";
+const LINE_PROFILE_ENDPOINT = "https://api.line.me/v2/bot/profile";
 
 /**
  * LINE_DRY_RUN === "1" かどうかを判定する。
@@ -147,5 +148,56 @@ export async function replyMessage(
   if (!res.ok) {
     // レスポンスボディ・トークン値はログしない（T-02-08）
     throw new Error(`LINE reply failed: ${res.status}`);
+  }
+}
+
+/** LINE プロフィール（表示名・アイコン）。取得できない場合は null。 */
+export interface LineProfile {
+  displayName: string;
+  pictureUrl: string | null;
+}
+
+/**
+ * LINE Profile API でフォロワーの表示名を取得する。
+ *
+ * follow webhook イベントには userId しか含まれないため、表示名は別途この
+ * エンドポイント（GET /v2/bot/profile/{userId}）で取得する必要がある（ADMIN-02:
+ * 管理者が人間として紐付けるには表示名が必須）。
+ *
+ * リゾルバとして使うため throw しない設計 — 失敗時は null を返し、呼び出し側
+ * （follow ハンドラ）は表示名なしで line_users 行を作る（CR-02: null 上書きはしない）。
+ *
+ * @param token  ステートレスチャネルアクセストークン（値をログしない）
+ * @param userId 取得対象の LINE userId（"U..."）
+ * @returns 表示名を含む LineProfile、取得失敗時は null
+ */
+export async function getLineProfile(
+  token: string,
+  userId: string,
+): Promise<LineProfile | null> {
+  // 注: DRY_RUN ゲートはここには無い。DRY_RUN は「実ユーザーへの送信を止める」ための
+  // フラグであり、プロフィール取得は副作用のない読み取り。dev でも実名を取得して
+  // ADMIN-02 の紐付けを使えるようにする必要がある（ユニットテストは fetch をスタブ）。
+  try {
+    const res = await fetch(`${LINE_PROFILE_ENDPOINT}/${encodeURIComponent(userId)}`, {
+      method: "GET",
+      headers: { "Authorization": `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      // ボディ・トークン・フル userId はログしない（T-02-08）
+      console.error(`LINE profile fetch failed: ${res.status}`);
+      return null;
+    }
+    const data = await res.json() as { displayName?: unknown; pictureUrl?: unknown };
+    if (typeof data.displayName !== "string" || data.displayName.length === 0) {
+      return null;
+    }
+    return {
+      displayName: data.displayName,
+      pictureUrl: typeof data.pictureUrl === "string" ? data.pictureUrl : null,
+    };
+  } catch (err) {
+    console.error(`LINE profile fetch error: ${(err as Error).message}`);
+    return null;
   }
 }

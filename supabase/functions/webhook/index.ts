@@ -25,7 +25,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { validateLineSignature } from "../_shared/line/signature.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { issueStatelessToken } from "../_shared/line/token.ts";
-import { replyMessage } from "../_shared/line/client.ts";
+import { getLineProfile, replyMessage } from "../_shared/line/client.ts";
 import { parseWebhookEvent } from "../_shared/line/events.ts";
 import { decodePostbackData } from "../_shared/confirm/postback.ts";
 import { answerPersistFailureResult, transition } from "../_shared/confirm/state.ts";
@@ -209,23 +209,40 @@ async function handleEvent(
     // follow: line_users へ upsert
     // (oa_config_id, line_user_id) の一意制約でupsert（IN-06修正済み）
     // replyしない（挨拶はLINE OA Manager側の領分 — D-07）
-    // CR-02: display_name はペイロードに含めない — 含めると再フォロー時に
-    // ON CONFLICT DO UPDATE で既存の display_name が null 上書きされデータ消失する
+    //
+    // ADMIN-02: 管理者が手動紐付けで人間として識別できるよう、follow イベントには
+    // 含まれない表示名を Profile API で取得して保存する。
+    // CR-02 両立: 表示名が取得できた時だけ payload に display_name を含める。
+    // 取得失敗（null）時はキーを含めない → 再フォロー時の null 上書きを防ぐ。
+    const followPayload: {
+      oa_config_id: string;
+      line_user_id: string;
+      followed_at: string;
+      display_name?: string;
+    } = {
+      oa_config_id: oaConfig.id,
+      line_user_id: event.userId,
+      followed_at: new Date().toISOString(),
+    };
+
+    const token = await getToken();
+    if (token) {
+      const profile = await getLineProfile(token, event.userId);
+      if (profile) {
+        followPayload.display_name = profile.displayName;
+      }
+    }
+
     const { error } = await supabase
       .from("line_users")
-      .upsert(
-        {
-          oa_config_id: oaConfig.id,
-          line_user_id: event.userId,
-          followed_at: new Date().toISOString(),
-        },
-        { onConflict: "oa_config_id,line_user_id" },
-      );
+      .upsert(followPayload, { onConflict: "oa_config_id,line_user_id" });
 
     if (error) {
       console.error(`webhook: follow upsert failed: ${error.message}`);
     } else {
-      console.log(`webhook: follow upserted oa_config_id=${oaConfig.id}`);
+      console.log(
+        `webhook: follow upserted oa_config_id=${oaConfig.id} hasName=${followPayload.display_name != null}`,
+      );
     }
     return;
   }
