@@ -10,7 +10,7 @@
  * (1)(2) が満たされない場合は 非ゼロ終了（exit 1）
  *
  * 使い方:
- *   set -a; source /Users/kugyu10/work/nomimas-bot/env.dev; set +a
+ *   set -a; source /Users/kugyu10/work/nomimas-bot/.env.local; set +a
  *   deno run --allow-net --allow-read --allow-env scripts/verify-cron.ts
  */
 

@@ -42,7 +42,7 @@ export function connectDev(): ReturnType<typeof postgres> {
   if (!password) {
     console.error(
       "[sql.ts] ABORT: DB パスワードが取得できませんでした。" +
-        "SUPABASE_DB_PASSWORD または SUPABASE_DIRECT_CONNECTION_STRING を env.dev に設定してください。",
+        "SUPABASE_DB_PASSWORD または SUPABASE_DIRECT_CONNECTION_STRING を .env.local（ルート） に設定してください。",
     );
     Deno.exit(1);
   }

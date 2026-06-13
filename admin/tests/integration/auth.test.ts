@@ -33,12 +33,12 @@ let client: SupabaseClient;
 beforeAll(async () => {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     throw new Error(
-      "[auth.test] ABORT: SUPABASE_URL または SUPABASE_ANON_KEY が設定されていません（env.dev を確認してください）",
+      "[auth.test] ABORT: SUPABASE_URL または SUPABASE_ANON_KEY が設定されていません（.env.local（ルート） を確認してください）",
     );
   }
   if (!MOCK_USER_PASSWORD) {
     throw new Error(
-      "[auth.test] ABORT: MOCK_USER_PASSWORD が設定されていません（env.dev を確認してください）",
+      "[auth.test] ABORT: MOCK_USER_PASSWORD が設定されていません（.env.local（ルート） を確認してください）",
     );
   }
 

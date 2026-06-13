@@ -49,7 +49,7 @@ beforeAll(async () => {
   const password = process.env.MOCK_USER_PASSWORD ?? "";
 
   if (!url || !anonKey || !password) {
-    throw new Error("[data.test] ABORT: SUPABASE_URL / key / MOCK_USER_PASSWORD が未設定です（env.dev を source してください）");
+    throw new Error("[data.test] ABORT: SUPABASE_URL / key / MOCK_USER_PASSWORD が未設定です（.env.local（ルート） を source してください）");
   }
 
   // user1 (dev-owner-1) で signInWithPassword

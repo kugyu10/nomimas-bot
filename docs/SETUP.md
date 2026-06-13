@@ -26,14 +26,14 @@
 
 ### env への記入
 
-`env.dev` の以下を埋める:
+`.env.local`（ルート） の以下を埋める:
 
 ```
 LINE_CHANNEL_ID=（手順6の値）
 LINE_CHANNEL_SECRET=（手順6の値）
 ```
 
-> 💡 開発用と本番用で OA を分ける場合は、本番 OA 側も同様に作成して `env.prod` に記入（後日でOK）。
+> 💡 開発用と本番用で OA を分ける場合は、本番 OA 側も同様に作成して `.env.prod` に記入（後日でOK）。
 
 ---
 
@@ -85,6 +85,6 @@ X_OAUTH_CLIENT_SECRET=（Client Secret）
 - [x] Supabase CLI ログイン
 - [x] GitHub リポジトリ `kugyu10/nomimas-bot`（⚠️ **public** — 秘密情報は env ファイルのみに置くこと）
 - [x] Deno / Vercel CLI インストール
-- [x] LINE チャネルID & シークレット → `env.dev` / `env.prod`（記入済み・ステートレストークン発行テスト成功）
-- [ ] X OAuth Client ID/Secret → `env.dev`（Phase 3 までに）
+- [x] LINE チャネルID & シークレット → `.env.local` / `.env.prod`（記入済み・ステートレストークン発行テスト成功）
+- [ ] X OAuth Client ID/Secret → `.env.local`（ルート）（Phase 3 までに）
 - [ ] Twipla サンプルURL の共有（任意）

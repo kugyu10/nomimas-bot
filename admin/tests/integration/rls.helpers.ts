@@ -44,7 +44,7 @@ export function connectDev(): postgres.Sql {
   if (!password) {
     throw new Error(
       "[rls.helpers] ABORT: DB パスワードが取得できませんでした。" +
-        "SUPABASE_DB_PASSWORD または SUPABASE_DIRECT_CONNECTION_STRING を env.dev に設定してください。",
+        "SUPABASE_DB_PASSWORD または SUPABASE_DIRECT_CONNECTION_STRING を .env.local（ルート） に設定してください。",
     );
   }
 

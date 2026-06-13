@@ -21,10 +21,10 @@
  *        （E2E 通知先。user2 は null のまま残す — skipped_no_line_id 経路の検証用）
  *
  * 使い方:
- *   set -a; source /Users/kugyu10/work/nomimas-bot/env.dev; set +a
+ *   set -a; source /Users/kugyu10/work/nomimas-bot/.env.local; set +a
  *   deno run --allow-net --allow-read --allow-env scripts/setup-dev.ts
  *
- * 必須環境変数（env.dev）:
+ * 必須環境変数（.env.local（ルート））:
  *   SUPABASE_ANON_KEY, LINE_CHANNEL_ID, CRON_FUNCTION_KEY,
  *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, MOCK_USER_PASSWORD
  */
@@ -41,29 +41,29 @@ const mockUserPassword = Deno.env.get("MOCK_USER_PASSWORD") ?? "";
 
 // 必須環境変数チェック（connectDev() も ref を確認するが、先にわかりやすいエラーを出す）
 if (!anonKey) {
-  console.error("[setup-dev] ABORT: SUPABASE_ANON_KEY が設定されていません（env.dev を確認してください）");
+  console.error("[setup-dev] ABORT: SUPABASE_ANON_KEY が設定されていません（.env.local（ルート） を確認してください）");
   Deno.exit(1);
 }
 if (!channelId) {
-  console.error("[setup-dev] ABORT: LINE_CHANNEL_ID が設定されていません（env.dev を確認してください）");
+  console.error("[setup-dev] ABORT: LINE_CHANNEL_ID が設定されていません（.env.local（ルート） を確認してください）");
   Deno.exit(1);
 }
 if (!cronFunctionKey) {
-  console.error("[setup-dev] ABORT: CRON_FUNCTION_KEY が設定されていません（env.dev を確認してください — WR-01）");
+  console.error("[setup-dev] ABORT: CRON_FUNCTION_KEY が設定されていません（.env.local（ルート） を確認してください — WR-01）");
   Deno.exit(1);
 }
 if (!supabaseUrl) {
-  console.error("[setup-dev] ABORT: SUPABASE_URL が設定されていません（env.dev を確認してください）");
+  console.error("[setup-dev] ABORT: SUPABASE_URL が設定されていません（.env.local（ルート） を確認してください）");
   Deno.exit(1);
 }
 if (!serviceRoleKey) {
-  console.error("[setup-dev] ABORT: SUPABASE_SERVICE_ROLE_KEY が設定されていません（env.dev を確認してください）");
+  console.error("[setup-dev] ABORT: SUPABASE_SERVICE_ROLE_KEY が設定されていません（.env.local（ルート） を確認してください）");
   Deno.exit(1);
 }
 if (!mockUserPassword) {
   console.error(
     "[setup-dev] ABORT: MOCK_USER_PASSWORD が設定されていません。\n" +
-    "  env.dev に以下を追記してください:\n" +
+    "  .env.local（ルート） に以下を追記してください:\n" +
     "    MOCK_USER_PASSWORD=<ランダムなパスワード>\n" +
     "  生成例: openssl rand -base64 18",
   );
@@ -72,7 +72,7 @@ if (!mockUserPassword) {
 
 // 04-REVIEW WR-03: GoTrue admin API 経路にも dev ref 安全弁を適用する。
 // connectDev()（SQL 経路）の T-02-02 ガードは SUPABASE_URL を検証しないため、
-// env.dev に誤って prod の SUPABASE_URL/サービスキーが混入していても SQL ガードを
+// .env.local（ルート） に誤って prod の SUPABASE_URL/サービスキーが混入していても SQL ガードを
 // 通過し、prod auth インスタンスにモックユーザーを作成してしまう。
 // admin API 呼び出し前に URL が dev ref と一致することを強制する。
 if (ref !== "cmsxvxtcdniqgvhxjqri" || !supabaseUrl.includes(ref)) {

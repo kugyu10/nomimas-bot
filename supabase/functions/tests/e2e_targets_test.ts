@@ -75,7 +75,7 @@ const FX = {
   lineUserCDE: "00000000-0000-0000-e2e0-000000000060",
 };
 
-// --- env.dev から SUPABASE_ANON_KEY と DEV_PROJECT_REF を取得 ---
+// --- .env.local（ルート） から SUPABASE_ANON_KEY と DEV_PROJECT_REF を取得 ---
 function getRequiredEnv(name: string): string {
   const val = Deno.env.get(name) ?? "";
   if (!val) throw new Error(`Missing env: ${name}`);

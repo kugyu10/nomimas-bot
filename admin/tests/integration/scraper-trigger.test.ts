@@ -1,6 +1,6 @@
 // admin/tests/integration/scraper-trigger.test.ts
 // scraper Edge Function へのユーザー JWT ゲートウェイ通過を自動検証する
-// RLS_TEST=1 でのみ実行（setup.ts が env.dev をロード済み）
+// RLS_TEST=1 でのみ実行（setup.ts が .env.local（ルート） をロード済み）
 //
 // 検証内容:
 // - dev-owner-1@nomimas.test でサインインし access_token を取得
@@ -10,7 +10,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 
-// テストは RLS_TEST=1 でのみ実行（setup.ts が env.dev を loadEnvFile で読む）
+// テストは RLS_TEST=1 でのみ実行（setup.ts が .env.local（ルート） を loadEnvFile で読む）
 const runIntegration = process.env.RLS_TEST === "1";
 
 describe.skipIf(!runIntegration)("scraper Edge Function ゲートウェイ通過テスト", () => {

@@ -1,6 +1,5 @@
 # Secrets — NEVER commit (this repo is public)
-env.dev
-env.prod
+# ルートの .env.local = dev環境の正、.env.prod = prod（いずれも .env.* で除外）
 .env
 .env.*
 !.env.example
