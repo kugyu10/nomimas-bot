@@ -8,6 +8,7 @@ import { getEvent } from "@/lib/data/events";
 import { listParticipantsByEvent, getParticipantsWithAnswers, getLinkingLists } from "@/lib/data/participants";
 import { getOaSettings } from "@/lib/data/oa";
 import { ScrapeButton } from "@/components/events/scrape-button";
+import { SendConfirmationsButton } from "@/components/events/send-confirmations-button";
 import { EventEditButton } from "@/components/events/event-edit-button";
 import { ParticipantsTab } from "@/components/events/participants-tab";
 import { AnswerStatusTab } from "@/components/events/answer-status-tab";
@@ -74,6 +75,7 @@ export default async function EventDetailPage({ params }: EventDetailPageProps) 
       {/* アクション領域: 参加者を取得（UI-SPEC: outline）+ 編集（WR-02: edit パス配線） */}
       <div className="flex items-center gap-2">
         <ScrapeButton eventId={id} />
+        <SendConfirmationsButton eventId={id} />
         <EventEditButton event={event} />
       </div>
 

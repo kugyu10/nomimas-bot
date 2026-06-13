@@ -26,6 +26,7 @@
  */
 
 import { z } from "zod";
+import { createClient } from "@supabase/supabase-js";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { issueStatelessToken } from "../_shared/line/token.ts";
 import { pushMessage } from "../_shared/line/client.ts";
@@ -64,9 +65,11 @@ Deno.serve(async (req) => {
     return new Response("Method Not Allowed", { status: 405 });
   }
 
-  // 0. 認可チェック（WR-01）: ゲートウェイJWT検証に加え専用シークレットを照合
-  //    anonキーは publishable クラスでPhase 3以降クライアントに配布されるため、
-  //    anonキー単独では配信をトリガーできないようにする
+  // 0. 認可チェック — 2モード
+  //    (A) cron 自動配信: x-cron-key === CRON_FUNCTION_KEY（全OA・窓内）
+  //    (B) 管理画面の手動配信: Authorization の ユーザーJWT で event_id への
+  //        アクセス権を RLS 検証（owner/co-owner/root のみ通過）→ そのイベントに絞る
+  //    どちらにも該当しなければ 401。
   const cronKey = Deno.env.get("CRON_FUNCTION_KEY") ?? "";
   if (!cronKey) {
     console.error("message-sender: CRON_FUNCTION_KEY is not set");
@@ -75,12 +78,59 @@ Deno.serve(async (req) => {
       headers: { "Content-Type": "application/json" },
     });
   }
-  if (req.headers.get("x-cron-key") !== cronKey) {
-    console.warn("message-sender: x-cron-key mismatch — rejecting");
-    return new Response(JSON.stringify({ status: "unauthorized" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
+
+  // 手動モードで絞り込む event_id（cron モードでは null）
+  let manualEventId: string | null = null;
+
+  if (req.headers.get("x-cron-key") === cronKey) {
+    // (A) cron モード — 追加検証なし
+  } else {
+    // (B) 手動モード候補: Authorization ユーザーJWT + body.event_id
+    const authHeader = req.headers.get("Authorization") ?? "";
+    let bodyEventId: string | null = null;
+    try {
+      const body = await req.json();
+      bodyEventId = typeof body?.event_id === "string" ? body.event_id : null;
+    } catch {
+      bodyEventId = null;
+    }
+
+    if (!authHeader.startsWith("Bearer ") || !bodyEventId) {
+      console.warn("message-sender: neither cron-key nor (user JWT + event_id) — rejecting");
+      return new Response(JSON.stringify({ status: "unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // ユーザーJWTでイベントにアクセスできるか RLS 検証（owner/co-owner/root のみ可視）
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ??
+      Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "";
+    if (!supabaseUrl || !anonKey) {
+      console.error("message-sender: SUPABASE_URL / anon key not set for user-scoped check");
+      return new Response(JSON.stringify({ status: "error" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    const userClient = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authHeader } },
     });
+    const { data: ev, error: evErr } = await userClient
+      .from("events")
+      .select("id")
+      .eq("id", bodyEventId)
+      .maybeSingle();
+    if (evErr || !ev) {
+      // RLS で隠れた = アクセス権なし（403）
+      console.warn("message-sender: manual broadcast denied — event not accessible");
+      return new Response(JSON.stringify({ status: "forbidden" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    manualEventId = bodyEventId;
   }
 
   // 1. 環境変数チェック（設定エラー 500 でLINE障害 502 と区別）
@@ -99,8 +149,10 @@ Deno.serve(async (req) => {
   const supabase = createServiceClient();
 
   // 2. 配信対象取得（RPC: service role）
+  //    手動モードは event_id で絞り N日前の窓を無視、cron モードは全OA・窓内
   const { data: targets, error: targetsError } = await supabase.rpc(
     "get_confirm_targets",
+    manualEventId ? { p_event_id: manualEventId } : {},
   );
   if (targetsError) {
     console.error(
@@ -123,18 +175,23 @@ Deno.serve(async (req) => {
   }
 
   // 3. 未紐付け件数をログ（D-11: 件数のみ — userId等は出さない）
-  const { data: unlinkedCount, error: unlinkedError } = await supabase.rpc(
-    "count_unlinked_confirm_targets",
-  );
-  if (unlinkedError) {
-    // 未紐付けカウントは警告のみ（配信ロジックをブロックしない）
-    console.warn(
-      `message-sender: count_unlinked_confirm_targets failed: ${unlinkedError.message}`,
+  //    count_unlinked_confirm_targets は全体集計のため cron モードのみ意味を持つ。
+  //    手動（event絞り）モードでは集計しない（0 を返す）。
+  let skippedUnlinked = 0;
+  if (!manualEventId) {
+    const { data: unlinkedCount, error: unlinkedError } = await supabase.rpc(
+      "count_unlinked_confirm_targets",
     );
-  } else {
-    console.log(`message-sender: skipped unlinked targets: ${unlinkedCount ?? 0}`);
+    if (unlinkedError) {
+      // 未紐付けカウントは警告のみ（配信ロジックをブロックしない）
+      console.warn(
+        `message-sender: count_unlinked_confirm_targets failed: ${unlinkedError.message}`,
+      );
+    } else {
+      console.log(`message-sender: skipped unlinked targets: ${unlinkedCount ?? 0}`);
+      skippedUnlinked = typeof unlinkedCount === "number" ? unlinkedCount : 0;
+    }
   }
-  const skippedUnlinked = typeof unlinkedCount === "number" ? unlinkedCount : 0;
 
   // 4. ステートレストークンを 1バッチ 1回発行（State of the Art）
   let token: string;

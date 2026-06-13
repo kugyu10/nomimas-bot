@@ -8,11 +8,18 @@ create extension if not exists pg_cron;
 create extension if not exists pg_net;
 
 -- ----------------------------------------------------------------------------
--- public.get_confirm_targets()
--- 配信対象参加者を返す（attending ∧ pending ∧ 紐付け済み ∧ N日以内イベント）
--- service_role のみ実行可（T-02-03）
+-- public.get_confirm_targets(p_event_id uuid default null)
+-- 配信対象参加者を返す（attending ∧ pending ∧ 紐付け済み）。
+--   p_event_id = null  : cron 自動配信モード — 全OA・N日前の窓内イベントのみ
+--   p_event_id 指定     : 管理画面の手動配信モード — そのイベントに絞り、窓を無視
+--                         （主催者が任意のタイミングで「今すぐ送る」ため）
+-- service_role のみ実行可（T-02-03）。手動モードの認可は message-sender 側で
+-- ユーザーJWT経由のイベントアクセス検証（RLS）により担保する。
 -- ----------------------------------------------------------------------------
-create or replace function public.get_confirm_targets()
+-- 旧シグネチャ（引数なし）を破棄してからデフォルト引数版を作る
+-- （0引数版とデフォルト引数版が共存すると get_confirm_targets() が曖昧になるため）
+drop function if exists public.get_confirm_targets();
+create or replace function public.get_confirm_targets(p_event_id uuid default null)
 returns table (
   participant_id  uuid,
   line_user_id    text,
@@ -46,13 +53,20 @@ as $$
   where p.status            = 'attending'
     and p.confirm_status    = 'pending'
     and p.line_user_id      is not null
-    and e.event_date        is not null
-    and e.event_date        >= (now() at time zone 'Asia/Tokyo')::date
-    and (e.event_date - (now() at time zone 'Asia/Tokyo')::date) <= e.confirm_days_before
+    and (
+      -- 手動モード: 指定イベントに絞り、N日前の窓は無視
+      (p_event_id is not null and e.id = p_event_id)
+      or
+      -- cron モード: 全イベント・窓内のみ
+      (p_event_id is null
+        and e.event_date is not null
+        and e.event_date >= (now() at time zone 'Asia/Tokyo')::date
+        and (e.event_date - (now() at time zone 'Asia/Tokyo')::date) <= e.confirm_days_before)
+    )
 $$;
 
-revoke all on function public.get_confirm_targets() from public, anon, authenticated;
-grant execute on function public.get_confirm_targets() to service_role;
+revoke all on function public.get_confirm_targets(uuid) from public, anon, authenticated;
+grant execute on function public.get_confirm_targets(uuid) to service_role;
 
 -- ----------------------------------------------------------------------------
 -- public.count_unlinked_confirm_targets()

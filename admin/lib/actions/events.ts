@@ -154,3 +154,59 @@ export async function triggerScrape(
 
   return { success: true, count: successCount };
 }
+
+// ─────────────────────────────────────────────
+// sendEventConfirmations: イベントの未確認者へ最終確認メッセージを手動配信
+// - message-sender Edge Function を ユーザーJWT + { event_id } で呼ぶ（手動モード）
+// - message-sender 側が RLS でイベントアクセス権を検証し、そのイベントの
+//   「attending ∧ pending ∧ 紐付け済み」へ配信（N日前の窓は無視）
+// - 既に送信済み(sent)の人には送られない（重複防止は get_confirm_targets が担保）
+// ─────────────────────────────────────────────
+export async function sendEventConfirmations(
+  eventId: string
+): Promise<{ success: boolean; sent?: number; failed?: number; targets?: number; error?: string }> {
+  const supabase = await createClient();
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) {
+    return { success: false, error: "ログインが必要です" };
+  }
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/message-sender`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ event_id: eventId }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      status?: string;
+      targets?: number;
+      sent?: number;
+      failed?: number;
+    };
+
+    if (!res.ok || body.status !== "ok") {
+      if (res.status === 403) {
+        return { success: false, error: "このイベントへの配信権限がありません" };
+      }
+      return { success: false, error: "配信に失敗しました。時間をおいてもう一度お試しください" };
+    }
+
+    revalidatePath(`/events/${eventId}`);
+    return {
+      success: true,
+      targets: body.targets ?? 0,
+      sent: body.sent ?? 0,
+      failed: body.failed ?? 0,
+    };
+  } catch {
+    return { success: false, error: "配信に失敗しました。時間をおいてもう一度お試しください" };
+  }
+}
