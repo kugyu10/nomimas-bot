@@ -137,6 +137,24 @@ Deno.serve(async (req: Request) => {
     // 件数のみログ（参加者生データをログに残さない — T-01-08）
     console.log(`[scraper] upserted ${rows.length} participants for url=${body.url}`);
 
+    // (4a') 同一OA内の既知の紐付けを引き継ぐ（screen_name一致・別イベント含む — ADMIN-02拡張）
+    // 取得したばかりの未紐付け participants に、過去イベントで紐付け済みの line_user を自動適用。
+    // service role 経由のため RLS バイパス。失敗してもスクレイプ自体は成功扱い（best-effort）。
+    {
+      const epuEvents = epu.events as unknown as { oa_config_id?: string } | null;
+      if (epuEvents?.oa_config_id) {
+        const { data: propagated, error: propErr } = await supabase.rpc(
+          "propagate_oa_links",
+          { p_oa_config_id: epuEvents.oa_config_id },
+        );
+        if (propErr) {
+          console.error(`[scraper] propagate_oa_links failed: ${propErr.message}`);
+        } else {
+          console.log(`[scraper] propagated ${propagated ?? 0} link(s) within OA`);
+        }
+      }
+    }
+
     // (4b) 差分計算 + 通知（upsert 成功後）
     if (!existErr && existingRows) {
       if (existingRows.length === 0) {

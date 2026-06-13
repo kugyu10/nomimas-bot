@@ -26,6 +26,7 @@ const SUPABASE_ANON_KEY =
 const MOCK_USER_EMAIL = "dev-owner-1@nomimas.test";
 const MOCK_USER_PASSWORD = process.env.MOCK_USER_PASSWORD ?? "";
 
+const OA1_ID = "00000000-0000-0000-0000-000000000001";
 const OA2_ID = "00000000-0000-0000-0000-000000000011";
 
 let client: SupabaseClient;
@@ -76,8 +77,9 @@ describe("モック認証スモーク（成功条件1）", () => {
     expect(error).toBeNull();
     expect(data).not.toBeNull();
     // user1 は dev-oa の owner のみ → dev-oa の 1行だけ返る
+    // 名前ではなく id で検証（運用中にOA名が変更されてもRLSスコープ検証は不変であるべき）
     expect(data!.length).toBe(1);
-    expect(data![0].name).toBe("dev-oa");
+    expect(data![0].id).toBe(OA1_ID);
   });
 
   it("同セッションで OA-2 の oa_configs UPDATE → 返却 0行（エラーなし — silent-0-row）", async () => {

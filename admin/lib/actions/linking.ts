@@ -53,6 +53,22 @@ export async function linkParticipant(
     };
   }
 
+  // 同一OA内の他イベントの同一人物（screen_name一致）にも紐付けを引き継ぐ（best-effort）
+  const { data: ev } = await supabase
+    .from("events")
+    .select("oa_config_id")
+    .eq("id", eventId)
+    .maybeSingle();
+  if (ev?.oa_config_id) {
+    const { error: propErr } = await supabase.rpc("propagate_oa_links", {
+      p_oa_config_id: ev.oa_config_id,
+    });
+    if (propErr) {
+      // 引き継ぎ失敗はこのイベントの紐付け成否に影響させない（ログのみ）
+      console.error("propagate_oa_links error:", propErr);
+    }
+  }
+
   revalidatePath(`/events/${eventId}`);
   return { success: true };
 }

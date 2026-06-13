@@ -128,3 +128,57 @@ select cron.schedule(
   );
   $$
 );
+
+-- ----------------------------------------------------------------------------
+-- public.propagate_oa_links(p_oa_config_id uuid)
+-- 同一OA内の「Xアカウント(screen_name)で既に紐付け済みの人」を、
+-- 同OAの未紐付け participants（別イベント含む）にも自動で引き継ぐ。
+--   - 同一人物の判定は screen_name（小文字化）で行う（display_name は表記揺れのため使わない）
+--   - 既に紐付いている行は上書きしない（line_user_id is null のみ対象）
+--   - 同一 screen_name が複数の line_user に紐付く異常時は updated_at 最新を採用
+-- SECURITY INVOKER: 呼び出し元の権限で実行（ユーザー経由なら RLS でOAスコープに限定、
+--   scraper の service role 経由なら RLS バイパス）。
+-- 返り値: 更新した行数。
+-- ----------------------------------------------------------------------------
+create or replace function public.propagate_oa_links(p_oa_config_id uuid)
+returns integer
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  affected integer;
+begin
+  with known as (
+    select distinct on (lower(pp.screen_name))
+      lower(pp.screen_name) as sn,
+      pp.line_user_id
+    from public.participants pp
+    join public.event_platform_urls epu on epu.id = pp.event_platform_url_id
+    join public.events e on e.id = epu.event_id
+    where e.oa_config_id = p_oa_config_id
+      and pp.line_user_id is not null
+      and coalesce(pp.screen_name, '') <> ''
+    order by lower(pp.screen_name), pp.updated_at desc
+  ),
+  tgt as (
+    select p.id, k.line_user_id
+    from public.participants p
+    join public.event_platform_urls epu on epu.id = p.event_platform_url_id
+    join public.events e on e.id = epu.event_id
+    join known k on k.sn = lower(p.screen_name)
+    where e.oa_config_id = p_oa_config_id
+      and p.line_user_id is null
+      and coalesce(p.screen_name, '') <> ''
+  )
+  update public.participants p
+  set line_user_id = tgt.line_user_id
+  from tgt
+  where p.id = tgt.id;
+  get diagnostics affected = row_count;
+  return affected;
+end;
+$$;
+
+revoke all on function public.propagate_oa_links(uuid) from public, anon;
+grant execute on function public.propagate_oa_links(uuid) to authenticated, service_role;
