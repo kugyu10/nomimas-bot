@@ -131,6 +131,21 @@ Deno.test("buildInitialMessages: 3要素の配列を返す（イベント情報�
   assertEquals(msgs.length, 3);
 });
 
+Deno.test("buildInitialMessages: 定型文(greeting)を渡すと案内文に反映される", () => {
+  const greeting = "毎度ご参加ありがとうございます！下記をご確認ください。";
+  const msgs = buildInitialMessages(EVENT_INFO, QUESTION, VALID_UUID, greeting);
+  const guidanceText = (msgs[1] as { text: string }).text;
+  assertStringIncludes(guidanceText, greeting);
+});
+
+Deno.test("buildInitialMessages: greeting が空/null ならデフォルト案内文", () => {
+  const def = "最終確認のご協力をお願いします";
+  const a = (buildInitialMessages(EVENT_INFO, QUESTION, VALID_UUID, "")[1] as { text: string }).text;
+  const b = (buildInitialMessages(EVENT_INFO, QUESTION, VALID_UUID, null)[1] as { text: string }).text;
+  assertStringIncludes(a, def);
+  assertStringIncludes(b, def);
+});
+
 Deno.test("buildInitialMessages: 先頭テキストに title / eventDate / meetingPlace / fee / venueInfo が含まれる", () => {
   const msgs = buildInitialMessages(EVENT_INFO, QUESTION, VALID_UUID);
   const firstText = (msgs[0] as { text: string }).text;

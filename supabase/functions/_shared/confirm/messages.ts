@@ -69,10 +69,15 @@ export function buildQuestionMessage(
  * 1 push リクエストに同梱する前提（≤5バブル: D-02）。
  * null フィールドは行ごと省略。
  */
+/** 案内文（定型文）が未設定の場合のデフォルト文 */
+const DEFAULT_GUIDANCE =
+  "イベント当日に向けて、最終確認のご協力をお願いします。\nこれからいくつかの質問にお答えください。";
+
 export function buildInitialMessages(
   event: EventInfo,
   q1: Question,
   participantId: string,
+  greeting?: string | null,
 ): object[] {
   // イベント情報テキスト（null フィールドは省略）
   const lines: string[] = [];
@@ -99,11 +104,13 @@ export function buildInitialMessages(
     text: lines.join("\n"),
   };
 
-  // 案内文
+  // 案内文（OA設定の定型文 greeting_message を優先。空ならデフォルト文）
+  const guidanceText = greeting && greeting.trim().length > 0
+    ? greeting
+    : DEFAULT_GUIDANCE;
   const guidanceMessage = {
     type: "text",
-    text:
-      "イベント当日に向けて、最終確認のご協力をお願いします。\nこれからいくつかの質問にお答えください。",
+    text: guidanceText,
   };
 
   // Q1 の Quick Reply 付きメッセージ

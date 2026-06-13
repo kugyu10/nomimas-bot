@@ -214,13 +214,16 @@ Deno.serve(async (req) => {
     string,
     Array<{ id: string; text: string; options: string[] }>
   >();
+  // 定型文（greeting_message）も oa_config_id ごとに保持
+  const oaGreetingMap = new Map<string, string | null>();
 
   for (const oaConfigId of oaConfigIds) {
     const { data: oaData, error: oaError } = await supabase
       .from("oa_configs")
-      .select("questions")
+      .select("questions, greeting_message")
       .eq("id", oaConfigId)
       .single();
+    oaGreetingMap.set(oaConfigId, (oaData?.greeting_message as string | null) ?? null);
 
     if (oaError || !oaData) {
       console.error(
@@ -279,7 +282,12 @@ Deno.serve(async (req) => {
     // 初回バンドル生成（イベント情報 + 案内文 + Q1 = 3バブル）
     let messages: object[];
     try {
-      messages = buildInitialMessages(eventInfo, questions[0], target.participant_id);
+      messages = buildInitialMessages(
+        eventInfo,
+        questions[0],
+        target.participant_id,
+        oaGreetingMap.get(target.oa_config_id) ?? null,
+      );
     } catch (err) {
       console.error(
         `message-sender: buildInitialMessages failed for participant_id=${target.participant_id}: ${(err as Error).message}`,
