@@ -463,28 +463,28 @@ async function handleEvent(
 
     // (d) owner/co-owner 通知（NOTIF-01 — reply 送信の後 — Pitfall 3）
     // 失敗しても 200 契約・reply に影響させない（T-04-07）
-    // 保存成功の場合のみ通知（answerPersistFailed=false）— Pitfall 9 対応
-    // 04-REVIEW WR-02: 値が変わらない再送（answerUnchanged=true）は通知をスキップ
-    if (result.answer && !answerPersistFailed) {
-      if (answerUnchanged) {
+    // 仕様変更: 通知は「最終確認の完了時のみ」（最後の質問に回答した時）。
+    //   途中回答（answer 種別）の都度通知は owner への通知過多になるため廃止。
+    // 完了の条件: result.reply === "completion"（最終質問の回答が保存され completed へ遷移）。
+    // 保存成功（answerPersistFailed=false）かつ値が変わった場合のみ（answerUnchanged=false）。
+    if (
+      result.reply === "completion" &&
+      result.answer &&
+      !answerPersistFailed &&
+      !answerUnchanged
+    ) {
+      try {
+        const r = await notifyConfirmUpdate(supabase, getToken, {
+          participantId,
+          kind: "completion",
+        });
         console.log(
-          `webhook: notify skipped — answer unchanged participant_id=${participantId}`,
+          `webhook: notify kind=${r.kind} inWindow=${r.inWindow} sent=${r.sent} failed=${r.failed} skipped=${r.skippedNoLineId}`,
         );
-      } else {
-        try {
-          const notifyKind = result.reply === "completion" ? "completion" : "answer";
-          const r = await notifyConfirmUpdate(supabase, getToken, {
-            participantId,
-            kind: notifyKind,
-          });
-          console.log(
-            `webhook: notify kind=${r.kind} inWindow=${r.inWindow} sent=${r.sent} failed=${r.failed} skipped=${r.skippedNoLineId}`,
-          );
-        } catch (err) {
-          console.error(
-            `webhook: notify failed participant_id=${participantId}: ${(err as Error).message}`,
-          );
-        }
+      } catch (err) {
+        console.error(
+          `webhook: notify failed participant_id=${participantId}: ${(err as Error).message}`,
+        );
       }
     }
     return;

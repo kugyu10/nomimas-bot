@@ -40,6 +40,18 @@ Deno.test("buildCompletionNotification: 出力に LINE userId パターンが含
   assertNotMatch(msg, LINE_USER_ID_PATTERN, "LINE userId を含まない");
 });
 
+Deno.test("buildCompletionNotification: confirmedCount 指定時は確定参加者数を含む", () => {
+  const msg = buildCompletionNotification("夏の飲み会", "山田花子", 5);
+  assertMatch(msg, /確定参加者/, "確定参加者ラベルを含む");
+  assertMatch(msg, /5名/, "件数を含む");
+  assertNotMatch(msg, LINE_USER_ID_PATTERN, "LINE userId を含まない");
+});
+
+Deno.test("buildCompletionNotification: confirmedCount 未指定時は件数行を出さない", () => {
+  const msg = buildCompletionNotification("夏の飲み会", "山田花子");
+  assertNotMatch(msg, /確定参加者/, "件数行なし");
+});
+
 // ==================== scrape_changes 通知 ====================
 
 Deno.test("buildScrapeChangesNotification: イベント名・件数・更新種別の3要素を含む", () => {
@@ -70,9 +82,10 @@ Deno.test("buildAnswerNotification: 引数は eventTitle と participantName の
   assertEquals(typeof msg, "string");
 });
 
-Deno.test("buildCompletionNotification: 引数は eventTitle と participantName の2つのみ", () => {
-  const msg = buildCompletionNotification("テストイベント", "テスト参加者");
-  assertEquals(typeof msg, "string");
+Deno.test("buildCompletionNotification: eventTitle・participantName + 任意の confirmedCount", () => {
+  // confirmedCount は省略可（後方互換）。指定時のみ件数行が付く
+  assertEquals(typeof buildCompletionNotification("テストイベント", "テスト参加者"), "string");
+  assertEquals(typeof buildCompletionNotification("テストイベント", "テスト参加者", 3), "string");
 });
 
 Deno.test("buildScrapeChangesNotification: 引数は eventTitle と counts オブジェクトの2つのみ", () => {

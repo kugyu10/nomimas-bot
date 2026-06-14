@@ -158,9 +158,27 @@ export async function notifyConfirmUpdate(
 
   if (token && recipients > 0) {
     const displayName = (participantData as { display_name?: string }).display_name ?? "参加者";
-    const text = params.kind === "completion"
-      ? buildCompletionNotification(ev.title, displayName)
-      : buildAnswerNotification(ev.title, displayName);
+    let text: string;
+    if (params.kind === "completion") {
+      // 確定（最終確認完了）参加者数を算出して文面に含める。
+      // この時点で当該participantは既に confirm_status='completed' に更新済み（webhook (b)）。
+      // カウント失敗時は件数なしの文面にフォールバック（通知自体は止めない）
+      const { count, error: countError } = await supabase
+        .from("participants")
+        .select("id, event_platform_urls!inner(event_id)", { count: "exact", head: true })
+        .eq("confirm_status", "completed")
+        .eq("event_platform_urls.event_id", ev.id);
+      if (countError) {
+        console.error(`notify: completed count failed (event_id=${ev.id}): ${countError.message}`);
+      }
+      text = buildCompletionNotification(
+        ev.title,
+        displayName,
+        typeof count === "number" ? count : undefined,
+      );
+    } else {
+      text = buildAnswerNotification(ev.title, displayName);
+    }
     const messages = [{ type: "text", text }];
 
     for (const member of recipientMembers) {

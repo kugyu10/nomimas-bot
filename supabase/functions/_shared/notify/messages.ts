@@ -8,7 +8,7 @@
  *
  * 文面例（Pitfall 11 準拠）:
  *   answer:          「【夏の飲み会】田中太郎さんが最終確認の回答を更新しました」
- *   completion:      「【夏の飲み会】山田花子さんが最終確認を完了しました」
+ *   completion:      「【夏の飲み会】山田花子さんが最終確認を完了しました\n現在の確定参加者: 5名」
  *   scrape_changes:  「【夏の飲み会】参加者情報が更新されました（新規2名・出欠変更1名）」
  */
 
@@ -25,9 +25,17 @@ export function buildAnswerNotification(eventTitle: string, participantName: str
  * 最終確認完了通知テキストを組み立てる。
  * @param eventTitle イベント名
  * @param participantName 参加者の表示名
+ * @param confirmedCount 現在の確定（最終確認完了）参加者数。未指定なら件数行を出さない
  */
-export function buildCompletionNotification(eventTitle: string, participantName: string): string {
-  return `【${eventTitle}】${participantName}さんが最終確認を完了しました`;
+export function buildCompletionNotification(
+  eventTitle: string,
+  participantName: string,
+  confirmedCount?: number,
+): string {
+  const base = `【${eventTitle}】${participantName}さんが最終確認を完了しました`;
+  return typeof confirmedCount === "number"
+    ? `${base}\n現在の確定参加者: ${confirmedCount}名`
+    : base;
 }
 
 /**
