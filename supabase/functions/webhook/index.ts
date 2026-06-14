@@ -494,6 +494,34 @@ async function handleEvent(
     // テキスト等の想定外入力（D-07）
     // 進行中の参加者には現在質問を再送、進行中でない参加者には応答しない
 
+    // 友だち取り込み: message 時にも line_users へ upsert する。
+    // webhook 登録前から友だちだった既存ユーザーは follow イベントが飛ばないため
+    // 紐付け候補に出てこない。メッセージ送信1回で登録できるようにする（再追加不要）。
+    // followed_at は payload に含めない（既存 follow 値を壊さず、新規は null のまま）。
+    {
+      const regPayload: {
+        oa_config_id: string;
+        line_user_id: string;
+        display_name?: string;
+      } = {
+        oa_config_id: oaConfig.id,
+        line_user_id: event.userId,
+      };
+      const regToken = await getToken();
+      if (regToken) {
+        const profile = await getLineProfile(regToken, event.userId);
+        if (profile) {
+          regPayload.display_name = profile.displayName;
+        }
+      }
+      const { error: regError } = await supabase
+        .from("line_users")
+        .upsert(regPayload, { onConflict: "oa_config_id,line_user_id" });
+      if (regError) {
+        console.error(`webhook: message line_users upsert failed: ${regError.message}`);
+      }
+    }
+
     // (oa_config_id, userId) → line_users.id を引く
     const { data: lineUserRowMsgData, error: lineUserError } = await supabase
       .from("line_users")
@@ -504,7 +532,7 @@ async function handleEvent(
     const lineUserRowMsg = lineUserRowMsgData as { id: string } | null;
 
     if (lineUserError || !lineUserRowMsg) {
-      // 未登録ユーザー: 応答しない
+      // 登録直後の取得失敗等: 応答しない（登録自体は上で実施済み）
       return;
     }
 
