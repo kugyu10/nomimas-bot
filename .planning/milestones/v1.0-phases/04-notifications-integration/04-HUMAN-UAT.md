@@ -3,24 +3,27 @@ status: partial
 phase: 04-notifications-integration
 source: [04-VERIFICATION.md]
 started: 2026-06-13T00:00:00Z
-updated: 2026-06-13T00:00:00Z
+updated: 2026-06-14T00:00:00Z
 ---
 
 ## Current Test
 
-[awaiting human testing]
+number: 2
+name: 実ブラウザのテンプレート操作
+awaiting: user response
 
 ## Tests
 
 ### 1. 実LINE通知受信
 
 expected: `supabase secrets unset LINE_DRY_RUN --project-ref cmsxvxtcdniqgvhxjqri`（または値を0に）した上で、自分のLINEを owner として oa_members.line_user_id に設定 → 参加者の回答 or 再スクレイプでの出欠変化（開催2日前以内のイベント）→ ownerのLINEに更新通知が届く。機械検証（DRY_RUN・notification_logs）は完了済み — 実機受信の確認のみ。
-result: [pending]
+result: pass
+note: "実機で owner 宛通知の受信を確認。UAT中に挙動改善を実施: (1) 通知は最終確認の完了時のみ（途中回答ごとの通知を廃止）、(2) 完了通知に確定参加者数を表示。webhook/notifier/messages を変更しdevへデプロイ済み。"
 
 ### 2. 実ブラウザのテンプレート操作
 
 expected: OA設定 → 質問エディタ「テンプレートとして保存」→ 名前入力 → 保存 → 別OAに切替（またはそのまま）→「テンプレートを適用」→ 上書き確認 → 質問リストが置き換わる → 設定を保存。
-result: [pending]
+result: pass
 
 ### 3. Vercelデプロイ（朝のTODO）
 

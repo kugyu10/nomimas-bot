@@ -13,12 +13,37 @@ GSD の `.planning/`（4フェーズ・v1要件12件）はブートストラッ�
 
 ## 起動コマンド
 
-このディレクトリで:
+このディレクトリで、以下のどちらかで起動します。
+
+### A. 直接接続（今夜はこちら）
+
+堅牢さ優先。無人完走の確実性を最優先する場合の標準形。
 
 ```bash
 cd ~/work/nomimas-bot
 caffeinate -dims claude --dangerously-skip-permissions
 ```
+
+### B. headroom 経由（トークン圧縮・要事前検証）
+
+[headroom](https://github.com/chopratejas/headroom) のローカルプロキシ(localhost:8787)を
+通すとツール出力等が圧縮されトークンを節約できる。ただし**無人夜間実行に使う前に
+昼間に1回検証すること**（下記の注意点参照）。
+
+```bash
+cd ~/work/nomimas-bot
+lsof -i :8787 || true                  # ポート空き確認
+headroom proxy --port 8787 &           # プロキシを先に起動
+ANTHROPIC_BASE_URL=http://localhost:8787 caffeinate -dims claude --dangerously-skip-permissions
+```
+
+> **無人実行での注意点**
+> - サブスク(Pro/Max)認証だと `401 / Invalid proxy server token` の既知不具合あり
+>   （[issue #3998](https://github.com/modelcontextprotocol/servers/issues/3998)）。
+>   最初の数分でコケると一晩無駄になるので、昼間に `claude "2+2は?"` で
+>   認証通過＋圧縮statsを確認してから採用する。
+> - プロキシが落ちると全API呼び出しが死ぬ単一障害点が増える（節約 vs 完走確実性）。
+> - `NO_PROXY=localhost,127.0.0.1` を要する環境あり（社内プロキシ干渉時）。
 
 起動したら以下を送信:
 
