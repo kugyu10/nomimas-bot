@@ -81,18 +81,24 @@ Deno.serve(async (req) => {
 
   // 手動モードで絞り込む event_id（cron モードでは null）
   let manualEventId: string | null = null;
+  // 個別送信モードで指定された participant_id（指定時は status 無視で1名へ送り直し）
+  let manualParticipantId: string | null = null;
 
   if (req.headers.get("x-cron-key") === cronKey) {
     // (A) cron モード — 追加検証なし
   } else {
     // (B) 手動モード候補: Authorization ユーザーJWT + body.event_id
+    //     body.participant_id があれば「個別送信モード」（status 無視で1名へ送り直し）
     const authHeader = req.headers.get("Authorization") ?? "";
     let bodyEventId: string | null = null;
+    let bodyParticipantId: string | null = null;
     try {
       const body = await req.json();
       bodyEventId = typeof body?.event_id === "string" ? body.event_id : null;
+      bodyParticipantId = typeof body?.participant_id === "string" ? body.participant_id : null;
     } catch {
       bodyEventId = null;
+      bodyParticipantId = null;
     }
 
     if (!authHeader.startsWith("Bearer ") || !bodyEventId) {
@@ -131,6 +137,7 @@ Deno.serve(async (req) => {
       });
     }
     manualEventId = bodyEventId;
+    manualParticipantId = bodyParticipantId;
   }
 
   // 1. 環境変数チェック（設定エラー 500 でLINE障害 502 と区別）
@@ -149,14 +156,20 @@ Deno.serve(async (req) => {
   const supabase = createServiceClient();
 
   // 2. 配信対象取得（RPC: service role）
-  //    手動モードは event_id で絞り N日前の窓を無視、cron モードは全OA・窓内
-  const { data: targets, error: targetsError } = await supabase.rpc(
-    "get_confirm_targets",
-    manualEventId ? { p_event_id: manualEventId } : {},
-  );
+  //    個別送信モード: participant_id 1名のみ（confirm_status 無視・送り直し）
+  //    手動モード    : event_id で絞り N日前の窓を無視
+  //    cron モード   : 全OA・窓内
+  const { data: targets, error: targetsError } = manualParticipantId
+    ? await supabase.rpc("get_participant_confirm_target", {
+        p_participant_id: manualParticipantId,
+      })
+    : await supabase.rpc(
+        "get_confirm_targets",
+        manualEventId ? { p_event_id: manualEventId } : {},
+      );
   if (targetsError) {
     console.error(
-      `message-sender: get_confirm_targets failed: ${targetsError.message}`,
+      `message-sender: target RPC failed: ${targetsError.message}`,
     );
     return new Response(JSON.stringify({ status: "error" }), {
       status: 500,
@@ -164,7 +177,36 @@ Deno.serve(async (req) => {
     });
   }
 
-  const confirmedTargets = (targets as ConfirmTarget[]) ?? [];
+  let confirmedTargets = (targets as ConfirmTarget[]) ?? [];
+
+  // 個別送信モードの追加防御: 対象participantが認可済みevent配下であることを確認
+  // （他イベントの participant_id を渡して別OAへ送る攻撃を防ぐ）
+  if (manualParticipantId) {
+    confirmedTargets = confirmedTargets.filter((t) => t.event_id === manualEventId);
+    if (confirmedTargets.length === 0) {
+      console.warn(
+        "message-sender: individual send rejected — participant not in accessible event or not linked",
+      );
+      return new Response(JSON.stringify({ status: "forbidden" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    // クリーン再送: 既存回答を削除し1問目からやり直す（confirm_status/index は push成功後にリセット）
+    const { error: delErr } = await supabase
+      .from("answers")
+      .delete()
+      .eq("participant_id", manualParticipantId);
+    if (delErr) {
+      console.error(
+        `message-sender: failed to clear answers for participant_id=${manualParticipantId}: ${delErr.message}`,
+      );
+      return new Response(JSON.stringify({ status: "error" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+  }
 
   // 0件なら早期 return（トークン発行もスキップ）
   if (confirmedTargets.length === 0) {

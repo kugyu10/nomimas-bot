@@ -210,3 +210,57 @@ export async function sendEventConfirmations(
     return { success: false, error: "配信に失敗しました。時間をおいてもう一度お試しください" };
   }
 }
+
+// ─────────────────────────────────────────────
+// sendParticipantConfirmation: 特定の1名へ最終確認メッセージを個別配信（送り直し）
+// - message-sender を ユーザーJWT + { event_id, participant_id } で呼ぶ（個別送信モード）
+// - message-sender 側が RLS でイベントアクセス権を検証し、participant が当該イベント配下か確認
+// - confirm_status / status に関係なく送信し、既存回答を消して1問目からクリーン再開する
+// ─────────────────────────────────────────────
+export async function sendParticipantConfirmation(
+  participantId: string,
+  eventId: string
+): Promise<{ success: boolean; sent?: number; failed?: number; error?: string }> {
+  const supabase = await createClient();
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) {
+    return { success: false, error: "ログインが必要です" };
+  }
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/message-sender`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ event_id: eventId, participant_id: participantId }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      status?: string;
+      sent?: number;
+      failed?: number;
+    };
+
+    if (!res.ok || body.status !== "ok") {
+      if (res.status === 403) {
+        return { success: false, error: "この参加者への配信権限がありません" };
+      }
+      return { success: false, error: "配信に失敗しました。時間をおいてもう一度お試しください" };
+    }
+
+    revalidatePath(`/events/${eventId}`);
+    return {
+      success: true,
+      sent: body.sent ?? 0,
+      failed: body.failed ?? 0,
+    };
+  } catch {
+    return { success: false, error: "配信に失敗しました。時間をおいてもう一度お試しください" };
+  }
+}
