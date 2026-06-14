@@ -86,16 +86,26 @@ Items acknowledged and deferred at milestone close on 2026-06-13:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| uat_gap | 01-HUMAN-UAT (LINEコンソールWebhook URL登録) | partial | 2026-06-13 |
-| uat_gap | 02-HUMAN-UAT (実LINE最終確認フロー体験) | partial | 2026-06-13 |
-| uat_gap | 03-HUMAN-UAT (実X OAuth/実ブラウザ/D&D) | partial | 2026-06-13 |
-| uat_gap | 04-HUMAN-UAT (実LINE通知/テンプレ操作/Vercel) | partial | 2026-06-13 |
+| uat_gap | 01-HUMAN-UAT (LINEコンソールWebhook URL登録) | ✅ done 2026-06-14 | 2026-06-13 |
+| uat_gap | 02-HUMAN-UAT (実LINE最終確認フロー体験) | ✅ done 2026-06-14 | 2026-06-13 |
+| uat_gap | 03-HUMAN-UAT (実X OAuth/実ブラウザ/D&D) | ✅ done 2026-06-14 | 2026-06-13 |
+| uat_gap | 04-HUMAN-UAT (実LINE通知/テンプレ操作/Vercel) | ✅ done 2026-06-14 | 2026-06-13 |
 | verification | 01〜04 VERIFICATION (status: human_needed — 自動must-haves全パス) | human_needed | 2026-06-13 |
 | v2 | LINK-01 / DATA-01 / REMIND-01 | Deferred to v2 | 2026-06-12 |
-| prod | prod環境構築チェックリスト（v1.0-MILESTONE-AUDIT.md参照） | pending | 2026-06-13 |
+| prod | prod環境構築 | ✅ ほぼ完了 2026-06-14（残: prod LINE channel の Webhook URL登録） | 2026-06-13 |
+
+## HUMAN-UAT 結果（2026-06-14 全8件 pass）
+
+- 01 Webhook登録 ✅ / 02 実LINE最終確認フロー ✅ / 03 実X OAuth・ブラウザ操作・D&D ✅ / 04 実LINE通知・テンプレ・Vercel ✅
+- UAT中の改善（mainにpush済み）:
+  - fix: login ページ hydration mismatch
+  - feat: 管理画面から個別に最終確認を送信（紐付けタブ・status無視・回答リセット）
+  - feat: 通知を完了時のみ＋確定参加者数を表示
+- prod構築（hgojtooexbknqotzkkja）: migration全適用 / Edge Functions 3本デプロイ / Edge secrets(LINE,CRON) / Vault(cron) / Twitterプロバイダー有効化 / oa_config seed(本番OA) / root+owner=kugyu10。本番URL: https://nomimas-bot.vercel.app（実Xログイン→管理画面動作確認済み）
+- prod LINE OAUTH 注意: Xアプリは Project 所属必須（dev で 403 client-not-enrolled を踏んだ）。同一Xアプリをdev/prod流用、Supabase各プロジェクトのcallback URLをXアプリに登録すること
 
 ## Session Continuity
 
-Last session: 2026-06-12
-Stopped at: Phase 2 Wave 1 実行中にClaude支出上限で停止（部分コミットはmainに保全済み）
+Last session: 2026-06-14
+Stopped at: HUMAN-UAT 全8件完了 + prod環境構築完了。残: prod LINE channel Webhook URL登録（実LINE運用時）、prod用 実OA設定（OA名/質問/定型文）の作成
 Resume file: None
