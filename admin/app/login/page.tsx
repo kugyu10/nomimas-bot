@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,14 +10,16 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  // OAuthコールバック失敗（/login?error=auth）はサーバーリダイレクトで戻るため初期値で拾う
-  const [error, setError] = useState<string | null>(() =>
-    typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).get("error") === "auth"
-      ? "ログインに失敗しました。もう一度お試しください"
-      : null
-  );
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // OAuthコールバック失敗（/login?error=auth）はサーバーリダイレクトで戻る。
+  // window.location をマウント後に読むことで SSR/クライアントの hydration 不一致を回避する
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("error") === "auth") {
+      setError("ログインに失敗しました。もう一度お試しください");
+    }
+  }, []);
 
   const isMock = process.env.NEXT_PUBLIC_AUTH_MOCK === "1";
 
