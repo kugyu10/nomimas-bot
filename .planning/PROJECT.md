@@ -2,13 +2,15 @@
 
 ## Current State
 
-**v1.0 MVP — SHIPPED 2026-06-13**（dev環境で全12要件機械検証済み）。
-残作業は HUMAN-UAT（実LINE受信・実X OAuthログイン・実ブラウザ操作）・Vercelデプロイ・prod環境構築のみ。
-詳細: .planning/MILESTONES.md / .planning/v1.0-MILESTONE-AUDIT.md
+**v1.0 MVP — 本番リリース済み（2026-06-19）**。dev で全12要件を機械検証（2026-06-13 SHIPPED）後、HUMAN-UAT 全8件 pass・prod 環境構築・Vercel 本番デプロイまで完了。
+本番稼働中: https://nomimas-bot.vercel.app （prod Supabase `hgojtooexbknqotzkkja`）。実X OAuthログイン→管理画面→OA設定→紐付け→実LINE push 配信まで実機確認済み。
+詳細: .planning/MILESTONES.md / .planning/v1.0-MILESTONE-AUDIT.md / .planning/RETROSPECTIVE.md
 
 ## Next Milestone Goals
 
-未定 — `/gsd:new-milestone` で定義。候補: HUMAN-UAT結果の反映、prod構築・本番リリース、v2要件（LINK-01/DATA-01/REMIND-01）
+未定 — `/gsd:new-milestone` で定義。候補:
+- v2要件: LINK-01（友だち追加時の自動紐付け）/ DATA-01（回答CSVエクスポート）/ REMIND-01（未回答者リマインド）
+- 本番運用整備: prod LINE channel の Webhook URL 登録、未認証OAでフォロワー一括取得不可（message登録で代替中）の改善、複数OA本格運用
 
 ## What This Is
 
