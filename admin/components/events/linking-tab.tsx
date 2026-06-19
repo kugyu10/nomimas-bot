@@ -35,7 +35,6 @@ import {
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { linkParticipant, unlinkParticipant } from "@/lib/actions/linking";
-import { SendParticipantButton } from "@/components/events/send-participant-button";
 import type { UnlinkedParticipant, LinkedParticipant, LineUserCandidate } from "@/lib/data/participants";
 
 interface LinkingTabProps {
@@ -316,14 +315,7 @@ export function LinkingTab({
                     )}
                   </div>
 
-                  <div className="flex items-center gap-2">
-                  {/* 個別送信ボタン（status 無視で送り直し） */}
-                  <SendParticipantButton
-                    participantId={participant.id}
-                    eventId={eventId}
-                    participantName={participant.display_name}
-                  />
-                  {/* 解除ボタン → AlertDialog */}
+                  {/* 解除ボタン → AlertDialog（個別の最終確認送信は回答状況タブに移設） */}
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       {/* UI-SPEC: destructive/outline — red-600 */}
@@ -357,7 +349,6 @@ export function LinkingTab({
                       </AlertDialogFooter>
                     </AlertDialogContent>
                   </AlertDialog>
-                  </div>
                 </div>
               ))}
             </div>

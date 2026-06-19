@@ -55,6 +55,8 @@ export interface AnswerStatusRow {
   participantId: string;
   participantName: string;
   lineDisplayName: string | null;
+  /** LINE 紐付け済み（line_user_id 非null）か。個別送信ボタンの出し分けに使う */
+  isLinked: boolean;
   answerCells: AnswerCell[];
   statusKey: ConfirmStatusKey;
   statusLabel: string;
@@ -93,6 +95,7 @@ export function buildAnswerStatusRows(
       participantId: p.id,
       participantName: p.display_name,
       lineDisplayName: p.line_user?.display_name ?? null,
+      isLinked: p.line_user_id != null,
       answerCells,
       statusKey,
       statusLabel: STATUS_LABEL[statusKey],

@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/tooltip";
 import { buildAnswerStatusRows } from "@/lib/answer-status";
 import type { ParticipantWithAnswers, QuestionDef, ConfirmStatusKey } from "@/lib/answer-status";
+import { SendParticipantButton } from "@/components/events/send-participant-button";
 
 // UI-SPEC Status Badge Reference — confirm_status → className
 const confirmStatusStyles: Record<ConfirmStatusKey, string> = {
@@ -30,6 +31,8 @@ const confirmStatusStyles: Record<ConfirmStatusKey, string> = {
 interface AnswerStatusTabProps {
   participants: ParticipantWithAnswers[];
   questions: QuestionDef[];
+  /** 個別最終確認の送信ボタン用（紐付け済み参加者の行に表示） */
+  eventId: string;
 }
 
 /** 回答テキストを 20 字で truncate する（tooltip で全文表示） */
@@ -38,27 +41,18 @@ function truncate(text: string, max = 20): string {
   return text.slice(0, max) + "…";
 }
 
-export function AnswerStatusTab({ participants, questions }: AnswerStatusTabProps) {
-  // UI-SPEC: 空状態「まだ回答がありません」— read-only・CTA なし
+export function AnswerStatusTab({ participants, questions, eventId }: AnswerStatusTabProps) {
+  // 参加者が1人もいないときのみ空状態。回答0件でも表は出す
+  // （ここから個別に最終確認を送信できるようにするため — 未回答者にこそ送りたい）
   if (participants.length === 0) {
     return (
       <div className="rounded-md border p-8 text-center">
-        <p className="text-sm text-muted-foreground">まだ回答がありません</p>
+        <p className="text-sm text-muted-foreground">参加者がいません</p>
       </div>
     );
   }
 
   const rows = buildAnswerStatusRows(participants, questions);
-
-  // 全員が全問未回答かつ回答数0の場合も「まだ回答がありません」
-  const hasAnyAnswer = rows.some((r) => r.answerCells.some((c) => c.value !== "—"));
-  if (!hasAnyAnswer && questions.length > 0) {
-    return (
-      <div className="rounded-md border p-8 text-center">
-        <p className="text-sm text-muted-foreground">まだ回答がありません</p>
-      </div>
-    );
-  }
 
   return (
     <TooltipProvider>
@@ -72,6 +66,7 @@ export function AnswerStatusTab({ participants, questions }: AnswerStatusTabProp
                 <TableHead key={q.id}>Q{i + 1}</TableHead>
               ))}
               <TableHead>全体ステータス</TableHead>
+              <TableHead className="text-right">最終確認</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -110,6 +105,17 @@ export function AnswerStatusTab({ participants, questions }: AnswerStatusTabProp
                   >
                     {row.statusLabel}
                   </Badge>
+                </TableCell>
+                <TableCell className="text-right">
+                  {row.isLinked ? (
+                    <SendParticipantButton
+                      participantId={row.participantId}
+                      eventId={eventId}
+                      participantName={row.participantName}
+                    />
+                  ) : (
+                    <span className="text-xs text-muted-foreground">未紐付け</span>
+                  )}
                 </TableCell>
               </TableRow>
             ))}

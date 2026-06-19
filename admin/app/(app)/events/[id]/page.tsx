@@ -94,7 +94,7 @@ export default async function EventDetailPage({ params }: EventDetailPageProps) 
 
         {/* 回答状況タブ（ADMIN-01 — 03-05 実装） */}
         <TabsContent value="answers" className="mt-4">
-          <AnswerStatusTab participants={participantsWithAnswers} questions={questions} />
+          <AnswerStatusTab participants={participantsWithAnswers} questions={questions} eventId={id} />
         </TabsContent>
 
         {/* 紐付けタブ（ADMIN-02 — 03-05 実装） */}
