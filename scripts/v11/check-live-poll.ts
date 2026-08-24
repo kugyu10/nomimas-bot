@@ -12,13 +12,24 @@
  *      （event_platform_url_id で絞り、status='attending' が1件以上、
  *        screen_name が非null、scraped_at が現在時刻に近いこと）
  *      → レスポンスの自己申告だけを信じない
+ *   3.5【強化】2回目のポーリング直前の DB スナップショットを記録する
+ *      （notification_logs の今日の行数、対象 event_platform_url_id の
+ *        participants の「natural_key と status の組」の集合・行数）
  *   4. 35秒待ってから（Twiplaへの配慮。最短30秒間隔）scraper をもう1回呼ぶ
+ *      （Twiplaを叩く回数は増やさない。ここでも1回のみ）
  *   5. 2回目のレスポンスが changes:{new:0,statusChanged:0} かつ notified:0 であることを確認する
  *      → 変化がないときに誤検知で通知を撃たない証明（このスクリプトはLINE送信を発生させない）
+ *   5.5【強化】2回目のポーリング直後、同じものを DB から SELECT して裏づける
+ *      （レスポンスの自己申告だけを信じない — 独立した検証役の指摘反映）:
+ *        - notification_logs の今日の行数が増えていないこと
+ *          （変化ゼロなら通知は発生しないはず。増えていたら誤検知が起きている）
+ *        - participants の「natural_key と status の組」の集合が3.5の記録と完全に一致すること
+ *        - scraped_at が2回目のポーリング開始時刻以降に更新されていること
+ *          （= 取得自体はちゃんと走っている。更新されていないなら upsert が働いていない）
  *
  * 使い方:
  *   set -a; source /Users/kugyu10/work/nomimas-bot/.env.local; set +a
- *   deno run --allow-net --allow-read --allow-env scripts/v11/check-live-poll.ts
+ *   deno run --allow-net --allow-read --allow-env --config deno.json scripts/v11/check-live-poll.ts
  *
  * すべて満たせば exit 0。1つでも欠ければ理由を出力して exit 1。
  */
@@ -76,12 +87,29 @@ async function callScraper(): Promise<
   return { status: res.status, body };
 }
 
+/** participants の「natural_key と status の組」の集合を "natural_key::status" の Set にする */
+function toNaturalKeyStatusSet(
+  rows: { natural_key: string; status: string }[],
+): Set<string> {
+  return new Set(rows.map((r) => `${r.natural_key}::${r.status}`));
+}
+
 const sql = connectDev();
 
 // 最終行のサマリ出力に使う（2回目を呼ばずに終わる場合は firstOnly のまま）
 let firstResult: { status: number; body: ScraperResponse } | undefined;
 let secondResult: { status: number; body: ScraperResponse } | undefined;
 let attendingCount = 0;
+
+// 3.5 / 5.5 の DB スナップショット比較に使う
+let logsCountBefore = 0;
+let logsCountAfter = 0;
+let participantsBeforeSet: Set<string> = new Set();
+let participantsAfterSet: Set<string> = new Set();
+let participantsBeforeCount = 0;
+let participantsAfterCount = 0;
+let secondPollStartedAt: Date | undefined;
+let dbBackedChecksRan = false;
 
 try {
   // -------------------------------------------------------------------------
@@ -192,6 +220,35 @@ try {
     );
   } else {
     // -----------------------------------------------------------------------
+    // (3.5) 2回目のポーリング直前のDBスナップショットを記録
+    //   （2回目レスポンスの自己申告だけでなく、DB側でも「本当に差分ゼロだったか」
+    //     「upsertが実際に走ったか」を裏づけるための基準点。独立した検証役の指摘反映）
+    // -----------------------------------------------------------------------
+    console.log(
+      "[check-live-poll] (3.5) 2回目ポーリング直前のDBスナップショットを記録...",
+    );
+    const [{ count: logsCountBeforeRaw }] = await sql<{ count: number }[]>`
+      select count(*)::int as count
+      from public.notification_logs
+      where (created_at at time zone 'Asia/Tokyo')::date = (now() at time zone 'Asia/Tokyo')::date
+    `;
+    logsCountBefore = logsCountBeforeRaw;
+
+    const beforeRows = await sql<
+      { natural_key: string; status: string }[]
+    >`
+      select natural_key, status
+      from public.participants
+      where event_platform_url_id = ${epuId}
+    `;
+    participantsBeforeSet = toNaturalKeyStatusSet(beforeRows);
+    participantsBeforeCount = beforeRows.length;
+    console.log(
+      `[check-live-poll]   直前スナップショット: notification_logs(今日)=${logsCountBefore}件 / ` +
+        `participants(natural_key,status)組=${participantsBeforeCount}件`,
+    );
+
+    // -----------------------------------------------------------------------
     // (4) 35秒待つ（Twiplaへの配慮。最短30秒間隔）
     // -----------------------------------------------------------------------
     console.log("[check-live-poll] (4) 35秒待機...");
@@ -201,6 +258,7 @@ try {
     // (5) 2回目の scraper 呼び出し → 差分ゼロ・notified 0 を確認
     // -----------------------------------------------------------------------
     console.log("[check-live-poll] (5) 2回目の scraper 呼び出し...");
+    secondPollStartedAt = new Date();
     secondResult = await callScraper();
     console.log(
       `[check-live-poll]   status=${secondResult.status} body=${
@@ -239,6 +297,94 @@ try {
     } else {
       ok("2回目 notified=0（LINE送信は発生していない）");
     }
+
+    // -----------------------------------------------------------------------
+    // (5.5) 2回目ポーリング直後、DBを SELECT して差分ゼロ・upsert実行を裏づける
+    //   （レスポンスの自己申告だけを信じない）
+    // -----------------------------------------------------------------------
+    console.log(
+      "[check-live-poll] (5.5) 2回目ポーリング直後のDBスナップショットをSELECTして裏づける...",
+    );
+    dbBackedChecksRan = true;
+
+    const [{ count: logsCountAfterRaw }] = await sql<{ count: number }[]>`
+      select count(*)::int as count
+      from public.notification_logs
+      where (created_at at time zone 'Asia/Tokyo')::date = (now() at time zone 'Asia/Tokyo')::date
+    `;
+    logsCountAfter = logsCountAfterRaw;
+    console.log(
+      `[check-live-poll]   notification_logs(今日) 直前=${logsCountBefore}件 → 直後=${logsCountAfter}件`,
+    );
+    if (logsCountAfter !== logsCountBefore) {
+      fail(
+        `2回目ポーリング前後で notification_logs(今日)の行数が変化しました（${logsCountBefore}→${logsCountAfter}）。` +
+          "差分ゼロのはずなのに通知が発生した疑いがあります",
+      );
+    } else {
+      ok(
+        "notification_logs(今日)の行数が変化していない（通知は発生していない）",
+      );
+    }
+
+    const afterRows = await sql<
+      { natural_key: string; status: string; scraped_at: Date | null }[]
+    >`
+      select natural_key, status, scraped_at
+      from public.participants
+      where event_platform_url_id = ${epuId}
+    `;
+    participantsAfterSet = toNaturalKeyStatusSet(afterRows);
+    participantsAfterCount = afterRows.length;
+    console.log(
+      `[check-live-poll]   participants(natural_key,status)組 直前=${participantsBeforeCount}件 → 直後=${participantsAfterCount}件`,
+    );
+
+    if (participantsAfterCount !== participantsBeforeCount) {
+      fail(
+        `2回目ポーリング前後で participants の(natural_key,status)組の件数が変化しました` +
+          `（${participantsBeforeCount}→${participantsAfterCount}）`,
+      );
+    } else {
+      const missing = [...participantsBeforeSet].filter(
+        (k) => !participantsAfterSet.has(k),
+      );
+      const added = [...participantsAfterSet].filter(
+        (k) => !participantsBeforeSet.has(k),
+      );
+      if (missing.length > 0 || added.length > 0) {
+        fail(
+          "2回目ポーリング前後で participants の(natural_key,status)組の内容が一致しません" +
+            `（消えた: ${missing.length}件 / 増えた: ${added.length}件）`,
+        );
+      } else {
+        ok(
+          "participants の(natural_key,status)組の集合が完全に一致（DB側でも誤検知なしを裏づけ）",
+        );
+      }
+    }
+
+    if (afterRows.length === 0) {
+      fail(
+        "2回目ポーリング後の participants が0件です（scraped_at更新の比較対象が無い）",
+      );
+    } else {
+      const startedAt = secondPollStartedAt;
+      const staleRows = afterRows.filter(
+        (r) => !r.scraped_at || r.scraped_at.getTime() < startedAt.getTime(),
+      );
+      if (staleRows.length > 0) {
+        fail(
+          `2回目のポーリングで scraped_at が更新されていない行が ${staleRows.length} 件あります` +
+            `（upsertが働いていない疑い。2回目呼び出し開始=${startedAt.toISOString()}）`,
+        );
+      } else {
+        ok(
+          `participants 全${afterRows.length}件の scraped_at が2回目のポーリングで更新されている` +
+            "（取得自体はちゃんと走っている証拠）",
+        );
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -251,7 +397,12 @@ try {
         `2回目 changes=${
           JSON.stringify(secondResult?.body?.changes ?? {})
         } notified=${secondResult?.body?.notified ?? "?"} / ` +
-        `participants ${attendingCount}件`,
+        `participants ${attendingCount}件 / ` +
+        `DB裏づけ=${
+          dbBackedChecksRan
+            ? `notification_logs(${logsCountBefore}→${logsCountAfter}) participants組(${participantsBeforeCount}→${participantsAfterCount}) scraped_at更新確認済み`
+            : "未実施"
+        }`,
     );
     Deno.exit(0);
   } else {
