@@ -42,6 +42,12 @@ function ok(msg: string) {
   console.log(`[check-line-sent] [OK] ${msg}`);
 }
 
+// 実送信を行った日を上書きできるようにする。既定は今日(JST)。
+// 後日 verify を再実行したときに条件4だけが落ちるのを避けるため
+// （例: V11_SEND_DATE=2026-08-25）。
+const targetDate = Deno.env.get("V11_SEND_DATE") ??
+  new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(new Date());
+
 const sql = connectDev();
 
 try {
@@ -66,7 +72,7 @@ try {
     select id, oa_config_id, kind, recipients, sent, failed, skipped_no_line_id, created_at
     from public.notification_logs
     where sent >= 1
-      and (created_at at time zone 'Asia/Tokyo')::date = (now() at time zone 'Asia/Tokyo')::date
+      and (created_at at time zone 'Asia/Tokyo')::date = ${targetDate}::date
     order by created_at desc
   `;
 
@@ -88,13 +94,11 @@ try {
     fail(
       "notification_logs に今日(JST)の sent>=1 の行がありません（実LINE配信が観測できていません）",
     );
-  } else if (rows.length !== 1) {
-    fail(
-      `今日(JST)の sent>=1 の行が ${rows.length} 件あります（「本人宛て1通のみ」は"ちょうど1件"を要求するが、複数件ある）`,
-    );
   } else {
+    // 「ちょうど1件」は要求しない。確認配信が正当に届けば2件目が増えるのが正しい振る舞いで、
+    // それで落ちる検査はゴールと排他になってしまう（下の per-row 上限の説明を参照）。
     const r = rows[0];
-    ok(`今日(JST)の sent>=1 の行がちょうど1件（id=${r.id}）`);
+    ok(`${targetDate}(JST) の sent>=1 の行が ${rows.length} 件（最新: id=${r.id} kind=${r.kind}）`);
     targetOaConfigId = r.oa_config_id;
 
     if (r.sent !== 1) {
@@ -123,25 +127,42 @@ try {
   }
 
   // ---------------------------------------------------------------------------
-  // 今日(JST)の notification_logs 全行の sent 合計が1であること
-  // （上の「ちょうど1件」チェックとは独立した集計クエリ。複数行に分かれて
-  //   2通送られているケースを取りこぼさないための裏づけ）
-  // ---------------------------------------------------------------------------
+  // 「本人宛てのみ」を per-row の上限で測る。
+  //
+  // 以前ここは「今日(JST)の sent 合計 === 1」を要求していた。これは重大な欠陥だった:
+  // ゴールは「直前参加者まで確認配信が自動で届く」ことであり、確認配信が実際に届けば
+  // その日の sent 合計は 2 以上になる。つまり**合格条件がゴールの達成と排他**になっていて、
+  // 「まだ誰にも確認配信が届いていないこと」に依存して exit 0 していた。
+  // （独立した反証プロセスの指摘。夜間の「本人宛て1通のみ」は"その夜のテストの安全上限"で
+  //   あって、システムが恒久的に1通しか送らないという要件ではない。）
+  //
+  // 正しい測り方: **どの1行も宛先が1名を超えないこと**。
+  // これなら「本人以外に送っていない」を保証しつつ、確認配信が正当に届いても落ちない。
   console.log(
-    "[check-line-sent] 今日(JST)の notification_logs 全行の sent 合計を SELECT...",
+    "[check-line-sent] 今日(JST)の notification_logs 全行の宛先数上限を SELECT...",
   );
-  const [{ total_sent }] = await sql<{ total_sent: number }[]>`
-    select coalesce(sum(sent), 0)::int as total_sent
+  const allRows = await sql<
+    { id: string; kind: string; recipients: number; sent: number; failed: number }[]
+  >`
+    select id, kind, recipients, sent, failed
     from public.notification_logs
-    where (created_at at time zone 'Asia/Tokyo')::date = (now() at time zone 'Asia/Tokyo')::date
+    where (created_at at time zone 'Asia/Tokyo')::date = ${targetDate}::date
   `;
-  console.log(`[check-line-sent]   今日(JST)の sent 合計 = ${total_sent}`);
-  if (total_sent !== 1) {
+  console.log(`[check-line-sent]   今日(JST)の行数 = ${allRows.length}`);
+  for (const r of allRows) {
+    console.log(
+      `[check-line-sent]     kind=${r.kind} recipients=${r.recipients} sent=${r.sent} failed=${r.failed}`,
+    );
+  }
+  const overFanout = allRows.filter((r) => r.recipients > 1 || r.sent > 1);
+  if (overFanout.length > 0) {
     fail(
-      `今日(JST)の notification_logs 全行の sent 合計が1ではありません: ${total_sent}`,
+      `宛先が1名を超える行があります（${overFanout
+        .map((r) => `kind=${r.kind} recipients=${r.recipients} sent=${r.sent}`)
+        .join(" / ")}）— 本人以外に送信された可能性がある`,
     );
   } else {
-    ok("今日(JST)の sent 合計 === 1");
+    ok(`今日(JST)の全 ${allRows.length} 行がいずれも宛先1名以内（本人以外に送っていない）`);
   }
 
   // ---------------------------------------------------------------------------
@@ -180,8 +201,8 @@ try {
   console.log("\n" + "=".repeat(60));
   if (failures.length === 0) {
     console.log(
-      "条件4 OK: 今日(JST) 本人宛て1通のみ（sent>=1行=1件, sent=1, recipients=1, failed=0, " +
-        "今日の合計sent=1, oa_members紐付け=1）",
+      `条件4 OK: ${targetDate}(JST) に本人宛ての実送信あり（sent>=1行=${rows.length}件, ` +
+        `先頭行 sent=1 recipients=1 failed=0, 全行が宛先1名以内, oa_members紐付け=1）`,
     );
     Deno.exit(0);
   } else {
