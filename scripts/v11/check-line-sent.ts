@@ -50,49 +50,29 @@ function ok(msg: string) {
   console.log(`[check-line-sent] [OK] ${msg}`);
 }
 
-// 実送信を行った日を上書きできるようにする。既定は今日(JST)。
-// 後日 verify を再実行したときに条件4だけが落ちるのを避けるため（例: V11_SEND_DATE=2026-08-25）。
+// 対象期間の決め方（外から動かせないようにしてある）
 //
-// ただし**過去の無関係な送信で合格を捏造できてはいけない**。
-// （独立した反証プロセスの指摘: V11_SEND_DATE=2026-06-14 を渡すと、v1.1 に着手する2ヶ月前の
-//   6月の動作確認ログで exit 0 になってしまった。それは v1.1 の実証を何も示していない。）
-// そこで **v1.1 のポーリング cron マイグレーションが適用された日**を下限とし、
-// それより前の日付は受け付けない。下限は環境変数ではなく台帳(schema_migrations)から導く。
+// 経緯: 当初は「今日(JST)」固定だったが、後日 verify を再実行すると条件4だけが落ちるため
+// V11_SEND_DATE で日付を上書きできるようにした。ところが独立した反証プロセスが
+// **2周にわたってその上書きを破った**:
+//   - 2026-06-14（v1.1 着手の2ヶ月前）を渡すと、無関係な6月の動作確認ログで exit 0
+//   - 2026-6-15（ゼロ埋め無し）は辞書順で下限を素通りし、さらに日付解釈で1日ずれて同じ結果
+// 上書きできること自体が捏造の口だった。**そこで上書きを撤去した。**
+//
+// 代わりに「**v1.1 が導入された日以降に、本人宛ての実送信実績があること**」を見る。
+// これは歴史的事実なので後日の再実行でも成立し（＝日付境界の問題が消える）、
+// 下限は台帳(schema_migrations)にあるマイグレーション version から導くので
+// 環境変数では動かせない。
 const POLLING_MIGRATION_VERSION = "20260825010000";
 const V11_FLOOR_DATE = `${POLLING_MIGRATION_VERSION.slice(0, 4)}-${
   POLLING_MIGRATION_VERSION.slice(4, 6)
 }-${POLLING_MIGRATION_VERSION.slice(6, 8)}`;
 
-// V11_SEND_DATE は **YYYY-MM-DD の正規形しか受け付けない**。
-//
-// なぜ厳格にするか（独立した反証プロセスが実際に破った）:
-//   当初は文字列比較 `targetDate < V11_FLOOR_DATE` だけで下限を守っていた。
-//   ところが `2026-6-15`（ゼロ埋め無し）は辞書順では "2026-6..." > "2026-0..." となり
-//   **下限 2026-08-25 を素通りする**。さらに DB へ渡る際の日付解釈で1日ずれ、
-//   結果として 2026-06-14 の無関係なログで条件4が exit 0 になった。
-//   辞書順比較は「正規形である」ことを検証してからでなければ使えない。
-function normalizedDateOrNull(v: string): string | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
-  // 実在する暦日であることも確認する（2026-13-45 のような値を弾く）
-  const [y, m, d] = v.split("-").map((n) => parseInt(n, 10));
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  if (
-    dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 ||
-    dt.getUTCDate() !== d
-  ) return null;
-  return v;
-}
-
-const rawDate = Deno.env.get("V11_SEND_DATE");
-const todayJst = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" })
-  .format(new Date());
-const targetDate = rawDate === undefined ? todayJst : (normalizedDateOrNull(rawDate) ?? "");
-
 const sql = connectDev();
 
 try {
   console.log(
-    `[check-line-sent] 対象日 = ${targetDate}（v1.1 下限 = ${V11_FLOOR_DATE}）`,
+    `[check-line-sent] 対象期間 = ${V11_FLOOR_DATE} 以降（v1.1 導入日以降。外から変更不可）`,
   );
 
   // (0) 前提: v1.1 のポーリング cron マイグレーションが適用されていること
@@ -107,30 +87,6 @@ try {
     );
   } else {
     ok(`ポーリング cron マイグレーション(${POLLING_MIGRATION_VERSION})は適用済み`);
-  }
-
-  // (0b-1) 形式不正は即失格（辞書順比較の前提を壊すため）
-  if (targetDate === "") {
-    fail(
-      `V11_SEND_DATE='${rawDate}' は YYYY-MM-DD の正規形ではありません。` +
-        "ゼロ埋め無し(2026-6-15)や別形式は、下限日の比較を素通りして" +
-        "無関係な過去のログで合格を作れてしまうため受け付けません",
-    );
-    // 以降の SQL は日付を必要とするので、ここで打ち切る
-    // （空文字のまま進むと Postgres 側の型エラーになり、理由が読めなくなる）
-    console.error(`条件4 NG: 以下の理由で不合格 — ${failures.join(" / ")}`);
-    Deno.exit(1);
-  }
-
-  // (0b-2) 捏造防止: v1.1 導入前の日付は受け付けない
-  //   ここに来る targetDate は正規形（YYYY-MM-DD）と検証済みなので辞書順比較で正しい
-  if (targetDate !== "" && targetDate < V11_FLOOR_DATE) {
-    fail(
-      `対象日 ${targetDate} は v1.1 導入日 ${V11_FLOOR_DATE} より前です。` +
-        "v1.1 と無関係な過去の送信ログで合格を作ることはできません",
-    );
-  } else {
-    ok(`対象日 ${targetDate} は v1.1 導入日 ${V11_FLOOR_DATE} 以降`);
   }
 
   console.log(
@@ -154,7 +110,7 @@ try {
     select id, oa_config_id, kind, recipients, sent, failed, skipped_no_line_id, created_at
     from public.notification_logs
     where sent >= 1
-      and (created_at at time zone 'Asia/Tokyo')::date = ${targetDate}::date
+      and (created_at at time zone 'Asia/Tokyo')::date >= ${V11_FLOOR_DATE}::date
     order by created_at desc
   `;
 
@@ -174,13 +130,13 @@ try {
 
   if (rows.length === 0) {
     fail(
-      "notification_logs に今日(JST)の sent>=1 の行がありません（実LINE配信が観測できていません）",
+      `notification_logs に ${V11_FLOOR_DATE} 以降の sent>=1 の行がありません（実LINE配信が観測できていません）`,
     );
   } else {
     // 「ちょうど1件」は要求しない。確認配信が正当に届けば2件目が増えるのが正しい振る舞いで、
     // それで落ちる検査はゴールと排他になってしまう（下の per-row 上限の説明を参照）。
     const r = rows[0];
-    ok(`${targetDate}(JST) の sent>=1 の行が ${rows.length} 件（最新: id=${r.id} kind=${r.kind}）`);
+    ok(`${V11_FLOOR_DATE} 以降(JST) の sent>=1 の行が ${rows.length} 件（最新: id=${r.id} kind=${r.kind}）`);
     targetOaConfigId = r.oa_config_id;
 
     if (r.sent !== 1) {
@@ -221,16 +177,16 @@ try {
   // 正しい測り方: **どの1行も宛先が1名を超えないこと**。
   // これなら「本人以外に送っていない」を保証しつつ、確認配信が正当に届いても落ちない。
   console.log(
-    "[check-line-sent] 今日(JST)の notification_logs 全行の宛先数上限を SELECT...",
+    "[check-line-sent] v1.1 導入日以降の notification_logs 全行の宛先数上限を SELECT...",
   );
   const allRows = await sql<
     { id: string; kind: string; recipients: number; sent: number; failed: number }[]
   >`
     select id, kind, recipients, sent, failed
     from public.notification_logs
-    where (created_at at time zone 'Asia/Tokyo')::date = ${targetDate}::date
+    where (created_at at time zone 'Asia/Tokyo')::date >= ${V11_FLOOR_DATE}::date
   `;
-  console.log(`[check-line-sent]   今日(JST)の行数 = ${allRows.length}`);
+  console.log(`[check-line-sent]   ${V11_FLOOR_DATE} 以降の行数 = ${allRows.length}`);
   for (const r of allRows) {
     console.log(
       `[check-line-sent]     kind=${r.kind} recipients=${r.recipients} sent=${r.sent} failed=${r.failed}`,
@@ -244,7 +200,7 @@ try {
         .join(" / ")}）— 本人以外に送信された可能性がある`,
     );
   } else {
-    ok(`今日(JST)の全 ${allRows.length} 行がいずれも宛先1名以内（本人以外に送っていない）`);
+    ok(`${V11_FLOOR_DATE} 以降の全 ${allRows.length} 行がいずれも宛先1名以内（本人以外に送っていない）`);
   }
 
   // ---------------------------------------------------------------------------
@@ -283,7 +239,7 @@ try {
   console.log("\n" + "=".repeat(60));
   if (failures.length === 0) {
     console.log(
-      `条件4 OK: ${targetDate}(JST) に本人宛ての実送信あり（sent>=1行=${rows.length}件, ` +
+      `条件4 OK: ${V11_FLOOR_DATE} 以降(JST) に本人宛ての実送信あり（sent>=1行=${rows.length}件, ` +
         `先頭行 sent=1 recipients=1 failed=0, 全行が宛先1名以内, oa_members紐付け=1）`,
     );
     Deno.exit(0);
