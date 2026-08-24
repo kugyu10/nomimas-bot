@@ -89,24 +89,60 @@ try {
     );
   }
 
-  // (4) cron モード（引数 null = 全OA・窓内のみ）でも拾われるかを参考情報として出す。
-  //     窓外なら0件になるのが正しい挙動であり、これは合否には含めない。
+  // (4) 自動配信パス（cron モード = 引数 null）で拾われるかを確認する。
+  //
+  // ここは「参考情報」で済ませてはいけない（独立した反証プロセスの指摘）。
+  // 手動モードは**日付の窓を無視する**ので、それだけで合否を出すと
+  // 「自動で届く」ことを何も測らないまま exit 0 になりうる。
+  //
+  // ただし自動パスが今アクティブかどうかは、検証イベントを通知窓の内に置くか外に置くかで
+  // 決まる。窓の内に置けば朝に実際の確認配信 LINE が飛ぶ（夜間の送信枠を超える）ので、
+  // 夜の終わりに意図的に窓の外へ退避させてある。
+  //
+  // そこで**「自動パスから外れている理由が日付の窓だけであること」を機械的に確かめる**。
+  // これなら「未紐付け」「confirm_status が pending でない」といった本質的な欠落と、
+  // 「意図して窓の外に置いている」ことを区別できる。
   const cronTargets = await sql<{ participant_id: string }[]>`
     select participant_id from public.get_confirm_targets(null)
   `;
   const inCronWindow = cronTargets.some((t) => targetIds.has(t.participant_id));
-  console.log(
-    `  参考: cronモード（窓内のみ）で拾われるか = ${inCronWindow}` +
-      `（窓は event_date が confirm_days_before 日以内。窓外の false は異常ではない）`,
-  );
+
+  const [{ days_out, cdb }] = await sql<{ days_out: number; cdb: number }[]>`
+    select (e.event_date - (now() at time zone 'Asia/Tokyo')::date)::int as days_out,
+           e.confirm_days_before::int as cdb
+    from public.events e where e.id = ${eventId}::uuid
+  `;
+  const windowExcludes = !(days_out >= 0 && days_out <= cdb);
+
+  if (inCronWindow) {
+    console.log(
+      `  [OK] 自動配信パス（cronモード）でも対象に入っている（event_date は ${days_out} 日後 / ` +
+        `confirm_days_before=${cdb}）— 確認配信は自動で拾われる状態`,
+    );
+  } else if (windowExcludes) {
+    console.log(
+      `  [OK] 自動配信パスから外れているが、理由は**日付の窓だけ**である` +
+        `（event_date は ${days_out} 日後 / confirm_days_before=${cdb} → 窓外）。` +
+        `紐付けと confirm_status は上で確認済みなので、窓の中に戻せば自動で拾われる` +
+        `（scripts/v11/set-test-event-window.ts in）`,
+    );
+  } else {
+    fail(
+      `自動配信パスから外れているが、日付の窓では説明できない` +
+        `（event_date は ${days_out} 日後 / confirm_days_before=${cdb} は窓内なのに ` +
+        `get_confirm_targets(null) に含まれない）— 紐付けや confirm_status 以外の理由で` +
+        `自動配信の対象から落ちている`,
+    );
+  }
 
   if (failed) {
     console.error("条件1b NG: 取り込んだ参加者が最終確認の配信対象になっていない");
     Deno.exit(1);
   }
   console.log(
-    `条件1b OK: ポーリングで取り込んだ参加者 ${hit.length}件 が line_users に紐付き、` +
-      `get_confirm_targets(event_id) の対象として拾われている（cronモード窓内=${inCronWindow}）`,
+    `条件1b OK: ポーリングで取り込んだ参加者 ${hit.length}件 が line_users に紐付き ` +
+      `get_confirm_targets の対象になっている（自動パス在籍=${inCronWindow}` +
+      `${inCronWindow ? "" : " / 除外理由は日付の窓のみと確認済み"}）`,
   );
 } catch (err) {
   console.error(`条件1b NG: ${err instanceof Error ? err.message : String(err)}`);
