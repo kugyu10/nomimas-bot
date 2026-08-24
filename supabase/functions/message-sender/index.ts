@@ -22,7 +22,16 @@
  *   4. issueStatelessToken を 1バッチ 1回発行
  *   5. OA設定（questions）を取得しzod検証
  *   6. 対象ごとに buildInitialMessages + pushMessage → confirm_status='sent' 更新
- *   7. {status, targets, sent, failed, skippedUnlinked} を JSON 200 で返す
+ *   7. notification_logs に配信結果を記録（イベント単位で1行。kind: confirm_broadcast）
+ *   8. {status, targets, sent, failed, skippedUnlinked} を JSON 200 で返す
+ *
+ * notification_logs 記録について:
+ *   - 参加者本人への配信結果はこれまで notification_logs に一切残っておらず、
+ *     「本人には届いていたのにログはsent:0」という観測の矛盾を生んでいた
+ *     （docs/v1.1-notification-log-audit.md）。集計は純関数
+ *     _shared/notify/broadcast_log.ts に切り出し、ここでは insert のみ行う。
+ *   - insert 失敗は console.error に落として続行する（notifier.ts と同じ流儀）。
+ *     配信自体は成功扱いのまま、レスポンス形状も変えない。
  */
 
 import { z } from "zod";
@@ -33,6 +42,12 @@ import { pushMessage } from "../_shared/line/client.ts";
 import { buildInitialMessages } from "../_shared/confirm/messages.ts";
 import type { EventInfo } from "../_shared/confirm/messages.ts";
 import { formatEventDate, formatMeetingAt } from "../_shared/confirm/format.ts";
+import {
+  aggregateConfirmBroadcastResults,
+  buildConfirmBroadcastLogRows,
+  shouldLogConfirmBroadcast,
+} from "../_shared/notify/broadcast_log.ts";
+import type { ConfirmBroadcastTargetResult } from "../_shared/notify/broadcast_log.ts";
 
 // --- Zod スキーマ ---
 
@@ -301,12 +316,15 @@ Deno.serve(async (req) => {
   // 6. 各対象に初回バンドルを push → confirm_status='sent' 更新
   let sent = 0;
   let failed = 0;
+  // notification_logs 記録用（PII なし: eventId/oaConfigId/成否のみ）
+  const targetResults: ConfirmBroadcastTargetResult[] = [];
 
   for (const target of confirmedTargets) {
     const questions = oaQuestionsMap.get(target.oa_config_id);
     if (!questions || questions.length === 0) {
       // 質問未設定OAはスキップ
       failed++;
+      targetResults.push({ eventId: target.event_id, oaConfigId: target.oa_config_id, success: false });
       continue;
     }
 
@@ -335,6 +353,7 @@ Deno.serve(async (req) => {
         `message-sender: buildInitialMessages failed for participant_id=${target.participant_id}: ${(err as Error).message}`,
       );
       failed++;
+      targetResults.push({ eventId: target.event_id, oaConfigId: target.oa_config_id, success: false });
       continue;
     }
 
@@ -347,6 +366,7 @@ Deno.serve(async (req) => {
         `message-sender: pushMessage failed for participant_id=${target.participant_id}: ${(err as Error).message}`,
       );
       failed++;
+      targetResults.push({ eventId: target.event_id, oaConfigId: target.oa_config_id, success: false });
       continue;
     }
 
@@ -364,9 +384,23 @@ Deno.serve(async (req) => {
     }
 
     sent++;
+    targetResults.push({ eventId: target.event_id, oaConfigId: target.oa_config_id, success: true });
   }
 
-  // 7. レスポンス（処理は同期完了 — Open Question 3 推奨）
+  // 7. notification_logs に配信結果を記録（イベント単位で1行 — Pattern 4 の検証規約に揃える）
+  //    対象0件は本関数の早期returnで既にここへ来ないため、shouldLogConfirmBroadcast は
+  //    常にtrueだが、意図を明示し純関数として単体テスト可能にするために呼ぶ。
+  if (shouldLogConfirmBroadcast(confirmedTargets.length)) {
+    const aggregates = aggregateConfirmBroadcastResults(targetResults);
+    const rows = buildConfirmBroadcastLogRows(aggregates, skippedUnlinked);
+    const { error: logError } = await supabase.from("notification_logs").insert(rows);
+    if (logError) {
+      // ログ insert 失敗は配信結果に影響させない（notifier.ts と同じ流儀）
+      console.error(`message-sender: notification_logs insert failed: ${logError.message}`);
+    }
+  }
+
+  // 8. レスポンス（処理は同期完了 — Open Question 3 推奨）
   return new Response(
     JSON.stringify({
       status: "ok",
