@@ -5,6 +5,14 @@
  *
  * このスクリプトは送信を一切行わない。observeのみ。
  *
+ * 既知の限界（意図的に直していない。判定を緩める変更を夜間に自分の判断で入れないため）:
+ *   この検査は「どの行も宛先1名以内」かつ「対象OAの oa_members の紐付けが1名」を要求する。
+ *   これは dev の形（紐付け済み主催者がちょうど1名）を前提にしており、
+ *   **主催者が2名以上 LINE 紐付けされた環境では正当な通知でも FAIL する**。
+ *   条件4は「今夜 dev で本人宛てに実送信できたこと」を測る受け入れ検査であって
+ *   本番の常時監視ではないため、この前提で足りると判断した。
+ *   本番で使うなら「recipients が、そのOAの紐付け済み人数と一致すること」に一般化すべき。
+ *
  * 検証内容（強化版 — 独立した検証役の指摘「sent>=1の行が今日あるか、しか見ておらず
  * kind/recipientsを絞っていないので複数通送られていても合格になってしまう」を反映）:
  *
@@ -43,8 +51,18 @@ function ok(msg: string) {
 }
 
 // 実送信を行った日を上書きできるようにする。既定は今日(JST)。
-// 後日 verify を再実行したときに条件4だけが落ちるのを避けるため
-// （例: V11_SEND_DATE=2026-08-25）。
+// 後日 verify を再実行したときに条件4だけが落ちるのを避けるため（例: V11_SEND_DATE=2026-08-25）。
+//
+// ただし**過去の無関係な送信で合格を捏造できてはいけない**。
+// （独立した反証プロセスの指摘: V11_SEND_DATE=2026-06-14 を渡すと、v1.1 に着手する2ヶ月前の
+//   6月の動作確認ログで exit 0 になってしまった。それは v1.1 の実証を何も示していない。）
+// そこで **v1.1 のポーリング cron マイグレーションが適用された日**を下限とし、
+// それより前の日付は受け付けない。下限は環境変数ではなく台帳(schema_migrations)から導く。
+const POLLING_MIGRATION_VERSION = "20260825010000";
+const V11_FLOOR_DATE = `${POLLING_MIGRATION_VERSION.slice(0, 4)}-${
+  POLLING_MIGRATION_VERSION.slice(4, 6)
+}-${POLLING_MIGRATION_VERSION.slice(6, 8)}`;
+
 const targetDate = Deno.env.get("V11_SEND_DATE") ??
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(new Date());
 
@@ -52,7 +70,35 @@ const sql = connectDev();
 
 try {
   console.log(
-    "[check-line-sent] notification_logs を SELECT（今日(JST)・sent>=1）...",
+    `[check-line-sent] 対象日 = ${targetDate}（v1.1 下限 = ${V11_FLOOR_DATE}）`,
+  );
+
+  // (0) 前提: v1.1 のポーリング cron マイグレーションが適用されていること
+  const applied = await sql<{ version: string }[]>`
+    select version from supabase_migrations.schema_migrations
+    where version = ${POLLING_MIGRATION_VERSION}
+  `;
+  if (applied.length === 0) {
+    fail(
+      `v1.1 のポーリング cron マイグレーション(${POLLING_MIGRATION_VERSION})が適用されていません。` +
+        "条件4を測る前提が成立していません",
+    );
+  } else {
+    ok(`ポーリング cron マイグレーション(${POLLING_MIGRATION_VERSION})は適用済み`);
+  }
+
+  // (0b) 捏造防止: v1.1 導入前の日付は受け付けない
+  if (targetDate < V11_FLOOR_DATE) {
+    fail(
+      `対象日 ${targetDate} は v1.1 導入日 ${V11_FLOOR_DATE} より前です。` +
+        "v1.1 と無関係な過去の送信ログで合格を作ることはできません",
+    );
+  } else {
+    ok(`対象日 ${targetDate} は v1.1 導入日 ${V11_FLOOR_DATE} 以降`);
+  }
+
+  console.log(
+    "[check-line-sent] notification_logs を SELECT（対象日・sent>=1）...",
   );
 
   // JST日付の比較は (created_at AT TIME ZONE 'Asia/Tokyo')::date で行う
