@@ -6,6 +6,17 @@
 // 4. 同一スナップショット同士→差分ゼロ（t0→t0）
 // を検証する
 // 実行: deno test --config supabase/functions/deno.json --allow-read supabase/functions/tests/twipla_polling_test.ts
+//
+// フィクスチャの出自（独立検証で「手書きではないか」と問われた点の記録）:
+//   実イベント https://twipla.jp/events/741123 を1回だけ取得した生HTMLから、
+//   パーサが依存する構造をそのまま写し、値だけをダミーに差し替えたもの。
+//   実在の氏名・screen_name・画像URLはリポジトリに入れない方針のため値は置換してある。
+//   構造の一致点（parseTwiplaHtml が実際に見る部分）:
+//     - セクション: <div class='float_left member_list round_border'>  （実HTMLと同一）
+//     - 見出しテキスト: 「参加者 (N人／定員M人)」「興味あり (N人)」「不参加 (N人)」
+//     - 参加者: <a href=... class="card namelist" n=... s=... title=... target="_self">
+//   実イベントは現在「参加者1人・定員表記なし」なので、定員抽出（定員15人）は
+//   フィクスチャ側で担保している。
 
 import { assertEquals } from "jsr:@std/assert";
 import type { ScrapedParticipant } from "../_shared/providers/types.ts";

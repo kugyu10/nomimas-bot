@@ -92,13 +92,58 @@ try {
     );
   }
 
+  // (4) confirm_status フィルタを**単独で**効かせて確かめる（空振り防止の本体）
+  //     cron モードでの除外は「日付の窓」でも起こるため、(2) だけでは
+  //     confirm_status が理由で外れたと言い切れない。
+  //     手動モード get_confirm_targets(event_id) は**窓を無視する**ので、
+  //     紐付け済み(line_user_id 非null)かつ confirm_status<>'pending' の参加者が
+  //     ここで外れるなら、その理由は confirm_status しか残らない。
+  const isolation = await sql<
+    { event_id: string; participant_id: string; confirm_status: string }[]
+  >`
+    select e.id as event_id, p.id as participant_id, p.confirm_status
+    from public.participants p
+    join public.event_platform_urls epu on epu.id = p.event_platform_url_id
+    join public.events e on e.id = epu.event_id
+    where p.confirm_status <> 'pending'
+      and p.line_user_id is not null
+  `;
+  if (isolation.length === 0) {
+    fail(
+      "confirm_status<>'pending' かつ紐付け済みの参加者が居ないため、" +
+        "confirm_status フィルタを単独で検証できない（空振り）",
+    );
+  } else {
+    let isolationOk = true;
+    for (const row of isolation) {
+      const manual = await sql<{ participant_id: string }[]>`
+        select participant_id from public.get_confirm_targets(${row.event_id}::uuid)
+      `;
+      const ids = new Set(manual.map((m) => m.participant_id));
+      if (ids.has(row.participant_id)) {
+        fail(
+          `手動モード（窓を無視）で confirm_status='${row.confirm_status}' の紐付け済み参加者が` +
+            "配信対象に含まれている — confirm_status フィルタが効いていない",
+        );
+        isolationOk = false;
+      }
+    }
+    if (isolationOk) {
+      console.log(
+        `  [OK] 手動モード（窓を無視）でも confirm_status<>'pending' の紐付け済み参加者 ` +
+          `${isolation.length}件 は対象外 — 除外理由が confirm_status であることを分離して確認`,
+      );
+    }
+  }
+
   if (failed) {
     console.error("二重送信チェック NG: 配信頻度を上げるのは安全でない");
     Deno.exit(1);
   }
   console.log(
     `二重送信チェック OK: 配信対象 ${targetIds.length}件 は全員 pending、` +
-      `送信済み ${sentLike.length}件 は対象外（頻度を上げても同じ参加者に再送されない）`,
+      `送信済み ${sentLike.length}件 は対象外（うち紐付け済みは手動モードでも除外される` +
+      `＝除外理由が confirm_status であることを分離確認済み）`,
   );
 } catch (err) {
   console.error(`二重送信チェック NG: ${err instanceof Error ? err.message : String(err)}`);
