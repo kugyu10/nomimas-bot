@@ -63,8 +63,30 @@ const V11_FLOOR_DATE = `${POLLING_MIGRATION_VERSION.slice(0, 4)}-${
   POLLING_MIGRATION_VERSION.slice(4, 6)
 }-${POLLING_MIGRATION_VERSION.slice(6, 8)}`;
 
-const targetDate = Deno.env.get("V11_SEND_DATE") ??
-  new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(new Date());
+// V11_SEND_DATE は **YYYY-MM-DD の正規形しか受け付けない**。
+//
+// なぜ厳格にするか（独立した反証プロセスが実際に破った）:
+//   当初は文字列比較 `targetDate < V11_FLOOR_DATE` だけで下限を守っていた。
+//   ところが `2026-6-15`（ゼロ埋め無し）は辞書順では "2026-6..." > "2026-0..." となり
+//   **下限 2026-08-25 を素通りする**。さらに DB へ渡る際の日付解釈で1日ずれ、
+//   結果として 2026-06-14 の無関係なログで条件4が exit 0 になった。
+//   辞書順比較は「正規形である」ことを検証してからでなければ使えない。
+function normalizedDateOrNull(v: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+  // 実在する暦日であることも確認する（2026-13-45 のような値を弾く）
+  const [y, m, d] = v.split("-").map((n) => parseInt(n, 10));
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (
+    dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 ||
+    dt.getUTCDate() !== d
+  ) return null;
+  return v;
+}
+
+const rawDate = Deno.env.get("V11_SEND_DATE");
+const todayJst = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" })
+  .format(new Date());
+const targetDate = rawDate === undefined ? todayJst : (normalizedDateOrNull(rawDate) ?? "");
 
 const sql = connectDev();
 
@@ -87,8 +109,22 @@ try {
     ok(`ポーリング cron マイグレーション(${POLLING_MIGRATION_VERSION})は適用済み`);
   }
 
-  // (0b) 捏造防止: v1.1 導入前の日付は受け付けない
-  if (targetDate < V11_FLOOR_DATE) {
+  // (0b-1) 形式不正は即失格（辞書順比較の前提を壊すため）
+  if (targetDate === "") {
+    fail(
+      `V11_SEND_DATE='${rawDate}' は YYYY-MM-DD の正規形ではありません。` +
+        "ゼロ埋め無し(2026-6-15)や別形式は、下限日の比較を素通りして" +
+        "無関係な過去のログで合格を作れてしまうため受け付けません",
+    );
+    // 以降の SQL は日付を必要とするので、ここで打ち切る
+    // （空文字のまま進むと Postgres 側の型エラーになり、理由が読めなくなる）
+    console.error(`条件4 NG: 以下の理由で不合格 — ${failures.join(" / ")}`);
+    Deno.exit(1);
+  }
+
+  // (0b-2) 捏造防止: v1.1 導入前の日付は受け付けない
+  //   ここに来る targetDate は正規形（YYYY-MM-DD）と検証済みなので辞書順比較で正しい
+  if (targetDate !== "" && targetDate < V11_FLOOR_DATE) {
     fail(
       `対象日 ${targetDate} は v1.1 導入日 ${V11_FLOOR_DATE} より前です。` +
         "v1.1 と無関係な過去の送信ログで合格を作ることはできません",
