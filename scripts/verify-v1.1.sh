@@ -18,6 +18,7 @@
 #
 # 環境変数:
 #   VERIFY_SKIP_LIVE=1  条件1の実ネットワークアクセスを飛ばす（オフライン時のみ）
+#   V11_ENV_FILE        .env.local の場所（worktree で検証するとき用）
 #
 # 注意: このマシンには `timeout` コマンドが無い。使わないこと。
 
@@ -28,6 +29,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT" || exit 1
 
 export CI=1 PAGER=cat GIT_PAGER=cat GIT_TERMINAL_PROMPT=0
+# deno test は色付き出力に ANSI エスケープを挟むため、件数 grep が空振りする。必ず無効化する。
+export NO_COLOR=1
 
 # ベースライン（2026-08-25 00:12 実測）。退行判定に使う。
 BASELINE_VITEST_TESTS=76
@@ -41,13 +44,17 @@ fail() { RESULTS+=("FAIL  $1"); printf '  \033[31m[FAIL]\033[0m %s\n' "$1"; FAIL
 head1() { printf '\n=== %s ===\n' "$1"; }
 
 # .env.local を読む（DB / Edge Function へのアクセスに必要）。値は絶対に出力しない。
-if [ -f "${REPO_ROOT}/.env.local" ]; then
+# git worktree で検証する場合、.env.local は gitignore のため worktree 側に存在しない。
+# その場合は V11_ENV_FILE で本体ツリーの .env.local を指すこと。
+ENV_FILE="${V11_ENV_FILE:-${REPO_ROOT}/.env.local}"
+if [ -f "$ENV_FILE" ]; then
   set -a
   # shellcheck disable=SC1091
-  . "${REPO_ROOT}/.env.local"
+  . "$ENV_FILE"
   set +a
 else
-  echo "ABORT: .env.local が見つかりません（${REPO_ROOT}/.env.local）" >&2
+  echo "ABORT: env ファイルが見つかりません（${ENV_FILE}）。" >&2
+  echo "       worktree で実行しているなら V11_ENV_FILE=<本体ツリー>/.env.local を指定してください。" >&2
   exit 2
 fi
 
@@ -199,7 +206,10 @@ MERGE_BASE="$(git merge-base main HEAD 2>/dev/null || echo '')"
 if [ -z "$MERGE_BASE" ]; then
   fail "握りつぶし検査: main との merge-base が取れなかった"
 else
+  # スキャナ自身（このファイルはパターン文字列そのものを含む）と、
+  # トークンを引用しうる Markdown は対象から外す。コードは全て対象に残す。
   SUPPRESS="$(git diff "${MERGE_BASE}..HEAD" -- . \
+    ':(exclude)scripts/verify-v1.1.sh' ':(exclude)*.md' \
     | grep -E '^\+' \
     | grep -Ev '^\+\+\+' \
     | grep -E '\b(it|test|describe)\.skip\b|\b(it|test|describe)\.only\b|xfail|--passWithNoTests|eslint-disable|@ts-ignore|@ts-nocheck|biome-ignore|Deno\.test\(\{[^)]*ignore: *true' \
