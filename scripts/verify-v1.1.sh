@@ -157,6 +157,24 @@ fi
 # ---------------------------------------------------------------------------
 head1 "条件5: 既存の回帰チェック"
 
+# admin の依存が無い環境（clean な git worktree など。node_modules は gitignore）でも
+# 自己完結して走れるようにする。独立検証を worktree で行うと必ずここで詰まるため、
+# 「環境が整っていない」を「ゴール未達」と誤判定しないように自分で用意する。
+if [ ! -d admin/node_modules ]; then
+  echo "  admin/node_modules が無いので依存をインストールします（初回のみ・数十秒かかります）"
+  if [ -f admin/package-lock.json ]; then
+    (cd admin && npm ci > /tmp/v11-npm.log 2>&1)
+  else
+    (cd admin && npm install > /tmp/v11-npm.log 2>&1)
+  fi
+  if [ ! -d admin/node_modules ]; then
+    fail "条件5: admin の依存インストールに失敗した（/tmp/v11-npm.log を見ること）"
+    tail -20 /tmp/v11-npm.log
+  else
+    echo "  依存インストール完了"
+  fi
+fi
+
 # 5-1 admin vitest（件数がベースラインから減っていないことも見る）
 if (cd admin && npx vitest run > /tmp/v11-vitest.log 2>&1); then
   n_tests="$(grep -oE 'Tests +[0-9]+ passed' /tmp/v11-vitest.log | grep -oE '[0-9]+' | head -1)"
