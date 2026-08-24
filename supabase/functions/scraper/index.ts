@@ -62,6 +62,23 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  // (3b) セクション0件は「取得失敗」として扱う（誤検知防止）
+  // parseTwiplaHtml は div.member_list が1つも無いHTML（マークアップ変更・エラーページ・
+  // ログイン要求・レート制限ページ等）に対して例外を投げず participants: [] を返す。
+  // これを「参加者が0人になった」と区別できないと、実際には取得に失敗しているだけなのに
+  // 既存の参加者と比較して「全員離脱した」ように見える危険がある
+  // （厳密には diffParticipants は消えた人を検出しないため直接の誤通知は起きないが、
+  //  それでも upsert・差分計算・scraped_at 更新のいずれも取得失敗時には行うべきではない）。
+  // fetch 失敗と同じ 502 として早期returnし、upsert/差分/通知のいずれにも進めない。
+  if (result.sectionCount === 0) {
+    // 件数のみログ（PII を出さない）
+    console.error(`[scraper] no sections found (sectionCount=0) — treating as fetch failure`);
+    return new Response(JSON.stringify({ error: "fetch failed" }), {
+      status: 502,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   // (4) event_platform_urls テーブルで登録済み URL を照合し participants へ upsert
   const supabase = createServiceClient();
   let saved = false;
@@ -108,6 +125,20 @@ Deno.serve(async (req: Request) => {
       });
     }
     const rows = [...byKey.values()];
+
+    // 判断メモ: 「セクションはあるが参加者0人」(sectionCount > 0 && rows.length === 0) の場合に
+    // upsert・通知を止めるべきか検討した結果、追加のガードは入れていない。理由:
+    //   - diffParticipants は incoming をループするだけで「消えた人」を検出しないため、
+    //     rows が空なら newParticipants/statusChanges は必ず空になり、この経路で
+    //     誤通知が飛ぶことはそもそも無い（下の existingRows.length===0 分岐と合わせ
+    //     通知は最大でも「変化なし」で完全にスキップされる）。
+    //   - upsert(rows=[]) は PostgREST 上は0行の no-op で、既存行を書き換えたり消したりしない
+    //     （既存参加者の行は残ったまま、scraped_at だけ更新されない）。これは
+    //     「本当に参加者が0人になった」場合でも「本当に取得失敗だがsectionは残っていた」場合でも
+    //     安全側（何もしない）に倒れるため、sectionCount>0 の時点でこれ以上区別する必要がない。
+    //   - sectionCount===0（セクション自体が無い＝取得失敗）は既に上で早期returnしているため、
+    //     ここに到達する時点で「セクションはHTML上存在した」ことは保証されている。
+    console.log(`[scraper] rows.length=${rows.length} sectionCount=${result.sectionCount}`);
 
     // (4a) upsert 前に既存行を select — select-before-upsert 差分計算（Pattern 2）
     // existErr 時は差分検出を諦め通知スキップ（upsert 自体は続行 — 取得保存優先）
