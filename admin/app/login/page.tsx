@@ -1,25 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
-export default function LoginPage() {
+function LoginPageInner() {
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
   // OAuthコールバック失敗（/login?error=auth）はサーバーリダイレクトで戻る。
-  // window.location をマウント後に読むことで SSR/クライアントの hydration 不一致を回避する
-  useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("error") === "auth") {
-      setError("ログインに失敗しました。もう一度お試しください");
-    }
-  }, []);
+  // useSearchParams（Suspense境界内）で読むことで SSR/クライアントの hydration 不一致を回避する
+  const [error, setError] = useState<string | null>(
+    searchParams.get("error") === "auth" ? "ログインに失敗しました。もう一度お試しください" : null
+  );
+  const [loading, setLoading] = useState(false);
 
   const isMock = process.env.NEXT_PUBLIC_AUTH_MOCK === "1";
 
@@ -133,5 +131,13 @@ export default function LoginPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginPageInner />
+    </Suspense>
   );
 }
