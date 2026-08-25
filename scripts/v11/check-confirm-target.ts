@@ -81,11 +81,34 @@ try {
   console.log(`  get_confirm_targets(event_id) の戻り: ${targets.length}件`);
 
   const targetIds = new Set(targets.map((t) => t.participant_id));
-  const hit = linked.filter((p) => targetIds.has(p.id));
+
+  // 「配信対象になった」ことの証拠は2通りある。どちらでも満たしたと見なす:
+  //   (a) いま get_confirm_targets に含まれている（これから送られる）
+  //   (b) 既に確認配信を受け取っている（confirm_status が pending でない）
+  //
+  // (b) を認めないと、**実際に届いた瞬間にこの検査が落ちる**。
+  // get_confirm_targets は pending の行しか返さないので、確認配信が成功して
+  // confirm_status が 'sent'/'in_progress'/'completed' になると対象から外れるためである。
+  // それは「ゴールを達成したから検査が落ちる」という倒錯で、条件4で一度やった失敗と同じ
+  // （合格条件がゴールの達成と排他になっていた）。**届いた実績は、対象になることの
+  // 上位互換の証拠**なので、そちらを正しく数える。
+  const eligible = linked.filter((p) => targetIds.has(p.id));
+  const served = linked.filter((p) => p.confirm_status !== "pending");
+  const hit = [...new Set([...eligible, ...served])];
+
   if (hit.length === 0) {
     fail(
-      "紐付け済み attending の participant が get_confirm_targets に1件も含まれない" +
-        "（confirm_status が pending でない、または関数の条件に合致していない）",
+      "紐付け済み attending の participant が、配信対象にも含まれず、確認配信を受け取った形跡も無い" +
+        `（linked=${linked.length}件 / get_confirm_targets=${targets.length}件 / ` +
+        `confirm_status が pending 以外=0件）`,
+    );
+  } else {
+    console.log(
+      `  配信対象になった証拠: これから送られる=${eligible.length}件 / ` +
+        `既に受け取り済み=${served.length}件` +
+        (served.length > 0
+          ? `（${served.map((p) => `@${p.screen_name}:${p.confirm_status}`).join(", ")}）`
+          : ""),
     );
   }
 
@@ -119,6 +142,12 @@ try {
       `  [OK] 自動配信パス（cronモード）でも対象に入っている（event_date は ${days_out} 日後 / ` +
         `confirm_days_before=${cdb}）— 確認配信は自動で拾われる状態`,
     );
+  } else if (served.length > 0 && eligible.length === 0) {
+    console.log(
+      `  [OK] 自動配信パスに居ないのは**既に確認配信を受け取ったから**` +
+        `（${served.map((p) => `@${p.screen_name}:${p.confirm_status}`).join(", ")}）。` +
+        `get_confirm_targets は pending のみ返すので、送信済みの人が外れるのは正しい挙動`,
+    );
   } else if (windowExcludes) {
     console.log(
       `  [OK] 自動配信パスから外れているが、理由は**日付の窓だけ**である` +
@@ -141,7 +170,8 @@ try {
   }
   console.log(
     `条件1b OK: ポーリングで取り込んだ参加者 ${hit.length}件 が line_users に紐付き ` +
-      `get_confirm_targets の対象になっている（自動パス在籍=${inCronWindow}` +
+      `確認配信の対象になった（これから=${eligible.length}件 / 受け取り済み=${served.length}件、` +
+      `自動パス在籍=${inCronWindow}` +
       `${inCronWindow ? "" : " / 除外理由は日付の窓のみと確認済み"}）`,
   );
 } catch (err) {
