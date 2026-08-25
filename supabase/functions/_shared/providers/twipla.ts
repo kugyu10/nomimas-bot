@@ -23,6 +23,11 @@ export function parseTwiplaHtml(html: string, sourceUrl: string): ScrapeResult {
   const participants: ScrapedParticipant[] = [];
   let capacity: number | null = null;
 
+  // 見つかった div.member_list セクション数。
+  // 0件なら「セクションはあるが空」ではなく「取得失敗（マークアップ変更等）」の可能性が高い —
+  // 呼び出し側（scraper/index.ts）でこの区別を使う。
+  const sectionCount = $("div.member_list").length;
+
   // deno-lint-ignore no-explicit-any
   $("div.member_list").each((_: number, section: any) => {
     // セクション先頭テキストでステータスを判別する
@@ -73,6 +78,7 @@ export function parseTwiplaHtml(html: string, sourceUrl: string): ScrapeResult {
     participants,
     capacity,
     fetchedAt: new Date().toISOString(),
+    sectionCount,
   };
 }
 

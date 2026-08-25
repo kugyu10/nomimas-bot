@@ -1,25 +1,36 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
-export default function LoginPage() {
+/**
+ * OAuth コールバック失敗（/login?error=auth）だけを読み取る小さな子。
+ *
+ * `useSearchParams` はこれを含むサブツリーの静的レンダリングを bail out させるため、
+ * **ページ全体ではなくこの部品だけ**を <Suspense> の内側に置く。
+ * 以前はページ全体を包んでいたので `/login` のプリレンダー HTML が空になり、
+ * フォームがハイドレーション後にしか現れなかった（初回描画が真っ白／JS無効で表示されない）。
+ */
+function AuthErrorFromQuery({ onError }: { onError: (msg: string) => void }) {
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get("error") === "auth") {
+      onError("ログインに失敗しました。もう一度お試しください");
+    }
+  }, [searchParams, onError]);
+  return null;
+}
+
+function LoginPageInner() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  // OAuthコールバック失敗（/login?error=auth）はサーバーリダイレクトで戻る。
-  // window.location をマウント後に読むことで SSR/クライアントの hydration 不一致を回避する
-  useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("error") === "auth") {
-      setError("ログインに失敗しました。もう一度お試しください");
-    }
-  }, []);
 
   const isMock = process.env.NEXT_PUBLIC_AUTH_MOCK === "1";
 
@@ -61,8 +72,16 @@ export default function LoginPage() {
     window.location.href = isSafeNext ? next : "/events";
   }
 
+  // onError は AuthErrorFromQuery の effect 依存に入るため、参照が毎回変わらないようにする
+  const handleAuthError = useCallback((msg: string) => setError(msg), []);
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
+      {/* useSearchParams を読むのはこの部品だけ。フォームは Suspense の外なので
+          静的にプリレンダーされ、JS のハイドレーション前から表示される */}
+      <Suspense fallback={null}>
+        <AuthErrorFromQuery onError={handleAuthError} />
+      </Suspense>
       <div className="w-full max-w-sm space-y-6 p-8">
         <div className="text-center space-y-2">
           <h1 className="text-xl font-semibold">Nomimas 管理画面</h1>
@@ -134,4 +153,8 @@ export default function LoginPage() {
       </div>
     </div>
   );
+}
+
+export default function LoginPage() {
+  return <LoginPageInner />;
 }

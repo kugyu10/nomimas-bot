@@ -78,13 +78,19 @@ function logDryRun(
  * @param token - ステートレスチャネルアクセストークン（値をログしないこと）
  * @param to    - 送信先 LINE userId（"U..." 形式、line_users.line_user_id）
  * @param messages - 送信メッセージ（1..5 件）
+ * @param retryKey - X-Line-Retry-Key に使う UUID。**同じ送信意図には同じ値を渡すこと**。
+ *                   省略時は毎回ランダム（＝リトライしても LINE 側では別送信になる）。
+ *                   決定的な値の作り方は `_shared/line/retry_key.ts` の `deriveRetryKey`。
  * @throws messages が 1..5 件以外の場合
- * @throws 非 2xx レスポンス（status コードのみ含む Error）
+ * @throws 非 2xx レスポンス（status コードのみ含む Error）。
+ *         ただし **409「retry key は受理済み」は成功として扱い throw しない**
+ *         （= 前回の試行で既に配信されている。重複送信を防ぐための正常系）
  */
 export async function pushMessage(
   token: string,
   to: string,
   messages: object[],
+  retryKey?: string,
 ): Promise<void> {
   // 1. メッセージ数 assert
   assertMessageCount(messages);
@@ -101,10 +107,19 @@ export async function pushMessage(
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${token}`,
-      "X-Line-Retry-Key": crypto.randomUUID(),
+      "X-Line-Retry-Key": retryKey ?? crypto.randomUUID(),
     },
     body: JSON.stringify({ to, messages }),
   });
+
+  // 409 は「同じ retry key のリクエストが既に受理済み」= 前回の試行で配信されている。
+  // これを失敗にすると、呼び出し側が「送れていない」と誤解して更に再試行し、
+  // 24時間の保持期間を過ぎたところで本当に重複配信してしまう。正常系として扱う。
+  // （LINE 公式 "Retrying an API request": 同じ retry key の再送は 409 で、重複配信されない）
+  if (res.status === 409) {
+    console.log(`LINE push: retry key already accepted (409) — 前回の試行で配信済みとして扱う`);
+    return;
+  }
 
   if (!res.ok) {
     // レスポンスボディ・トークン・フル userId はログしない（T-02-08）

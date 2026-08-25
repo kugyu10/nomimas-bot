@@ -21,8 +21,19 @@
  *   3. count_unlinked_confirm_targets() で未紐付け件数をログ
  *   4. issueStatelessToken を 1バッチ 1回発行
  *   5. OA設定（questions）を取得しzod検証
- *   6. 対象ごとに buildInitialMessages + pushMessage → confirm_status='sent' 更新
- *   7. {status, targets, sent, failed, skippedUnlinked} を JSON 200 で返す
+ *   6. 対象ごとに buildInitialMessages → **claim（pending限定でsentへ）** → pushMessage
+ *      （claim-then-send: 同時実行での二重送信を構造的に防ぐ。push 失敗時は pending に戻す。
+ *        個別送信モードは confirm_status を無視する仕様のため claim を掛けない）
+ *   7. notification_logs に配信結果を記録（イベント単位で1行。kind: confirm_broadcast）
+ *   8. {status, targets, sent, failed, skippedUnlinked, skippedConcurrent} を JSON 200 で返す
+ *
+ * notification_logs 記録について:
+ *   - 参加者本人への配信結果はこれまで notification_logs に一切残っておらず、
+ *     「本人には届いていたのにログはsent:0」という観測の矛盾を生んでいた
+ *     （docs/v1.1-notification-log-audit.md）。集計は純関数
+ *     _shared/notify/broadcast_log.ts に切り出し、ここでは insert のみ行う。
+ *   - insert 失敗は console.error に落として続行する（notifier.ts と同じ流儀）。
+ *     配信自体は成功扱いのまま、レスポンス形状も変えない。
  */
 
 import { z } from "zod";
@@ -30,9 +41,16 @@ import { createClient } from "@supabase/supabase-js";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { issueStatelessToken } from "../_shared/line/token.ts";
 import { pushMessage } from "../_shared/line/client.ts";
+import { deriveRetryKey } from "../_shared/line/retry_key.ts";
 import { buildInitialMessages } from "../_shared/confirm/messages.ts";
 import type { EventInfo } from "../_shared/confirm/messages.ts";
 import { formatEventDate, formatMeetingAt } from "../_shared/confirm/format.ts";
+import {
+  aggregateConfirmBroadcastResults,
+  buildConfirmBroadcastLogRows,
+  shouldLogConfirmBroadcast,
+} from "../_shared/notify/broadcast_log.ts";
+import type { ConfirmBroadcastTargetResult } from "../_shared/notify/broadcast_log.ts";
 
 // --- Zod スキーマ ---
 
@@ -301,12 +319,18 @@ Deno.serve(async (req) => {
   // 6. 各対象に初回バンドルを push → confirm_status='sent' 更新
   let sent = 0;
   let failed = 0;
+  // 他の実行が先に確保した（claim できなかった）件数。二重送信を避けて意図的にスキップした数で、
+  // 失敗ではない。同一分に配信ジョブが重なっていないかを運用で気づくための観測値。
+  let skippedConcurrent = 0;
+  // notification_logs 記録用（PII なし: eventId/oaConfigId/成否のみ）
+  const targetResults: ConfirmBroadcastTargetResult[] = [];
 
   for (const target of confirmedTargets) {
     const questions = oaQuestionsMap.get(target.oa_config_id);
     if (!questions || questions.length === 0) {
       // 質問未設定OAはスキップ
       failed++;
+      targetResults.push({ eventId: target.event_id, oaConfigId: target.oa_config_id, success: false });
       continue;
     }
 
@@ -335,41 +359,143 @@ Deno.serve(async (req) => {
         `message-sender: buildInitialMessages failed for participant_id=${target.participant_id}: ${(err as Error).message}`,
       );
       failed++;
+      targetResults.push({ eventId: target.event_id, oaConfigId: target.oa_config_id, success: false });
       continue;
+    }
+
+    // claim-then-send（同時実行での二重送信を構造的に防ぐ）
+    //
+    // 以前は「push してから confirm_status='sent' に更新」する順序だった。
+    // これは**逐次実行なら**重複を防げるが、**同時実行では防げない**:
+    // 配信を起動する cron が2本同じ分に発火すると、両方が同じ participant を
+    // pending として読み、両方が push してから両方が 'sent' に更新する
+    // （読み取りと更新の間に LINE トークン発行などの await が複数挟まる）。
+    //
+    // そこで push の**前**に「pending の行に限って sent へ更新」し、
+    // **1行更新できたときだけ** push する。UPDATE は行ロックを取るので、
+    // 同じ participant を2つの実行が同時に確保することはない。
+    //
+    // 個別送信モード（participant_id 指定 = 主催者が「送り直し」を押した場合）は
+    // confirm_status を意図的に無視する仕様なので、claim を掛けない（従来の順序のまま）。
+    const useClaim = !manualParticipantId;
+
+    if (useClaim) {
+      const { data: claimed, error: claimError } = await supabase
+        .from("participants")
+        .update({ confirm_status: "sent", current_question_index: 0 })
+        .eq("id", target.participant_id)
+        .eq("confirm_status", "pending")
+        .select("id");
+
+      if (claimError) {
+        console.error(
+          `message-sender: claim failed for participant_id=${target.participant_id}: ${claimError.message}`,
+        );
+        failed++;
+        targetResults.push({ eventId: target.event_id, oaConfigId: target.oa_config_id, success: false });
+        continue;
+      }
+      if (!claimed || claimed.length === 0) {
+        // 他の実行が先に確保した（= その実行が送る）。二重送信を避けてスキップする。
+        // **監査ログには積む**。積まないと「全件が先を越された」場合に targetResults が空になり、
+        // notification_logs に1行も残らない。重複実行を可視化するために足したログが、
+        // まさに重複実行のときだけ効かなくなる（レビュー指摘 low/L6）。
+        skippedConcurrent++;
+        targetResults.push({
+          eventId: target.event_id,
+          oaConfigId: target.oa_config_id,
+          success: false,
+          skippedConcurrent: true,
+        });
+        continue;
+      }
     }
 
     // push送信（D-02: 1人=1通カウント）
+    //
+    // retry key は「この参加者への、このイベントの、初回確認バンドル」から決定的に導出する。
+    // claim-then-send は push 失敗時に pending へ差し戻して次回再試行させるが、
+    // pushMessage は「LINE は受理したがレスポンス受信前に接続が切れた」場合にも throw する。
+    // キーがランダムだと再試行が別送信として受理され利用者に2通届くため、
+    // 同じ送信意図なら同じキーになるようにして LINE 側の重複排除（409）に載せる。
+    const retryKey = await deriveRetryKey(
+      "confirm-initial",
+      target.participant_id,
+      target.event_id,
+    );
+
     try {
-      await pushMessage(token, target.line_user_id, messages);
+      await pushMessage(token, target.line_user_id, messages, retryKey);
     } catch (err) {
-      // push 失敗: pending のまま残す（翌日 cron が再試行 — クォータ枯渇時の安全挙動）
       console.error(
         `message-sender: pushMessage failed for participant_id=${target.participant_id}: ${(err as Error).message}`,
       );
+      if (useClaim) {
+        // 確保を取り消して pending に戻す（次回の実行で再試行される）。
+        // 戻さないと「送れていないのに sent」になり、その人は永久に取りこぼされる。
+        // 戻す側に倒すと、push は成功していたのに例外になった場合に重複しうるが、
+        // このプロダクトでは「届かない」方が「2通届く」より損害が大きいと判断した。
+        const { error: revertError } = await supabase
+          .from("participants")
+          .update({ confirm_status: "pending" })
+          .eq("id", target.participant_id)
+          .eq("confirm_status", "sent");
+        if (revertError) {
+          console.error(
+            `message-sender: CRITICAL: claim revert failed for participant_id=${target.participant_id}: ${revertError.message}. この参加者は送信されないまま sent になっている。`,
+          );
+        }
+      }
       failed++;
+      targetResults.push({ eventId: target.event_id, oaConfigId: target.oa_config_id, success: false });
       continue;
     }
 
-    // push 成功直後に confirm_status='sent' を更新（D-12: 重複防止）
-    const { error: updateError } = await supabase
-      .from("participants")
-      .update({ confirm_status: "sent", current_question_index: 0 })
-      .eq("id", target.participant_id);
+    if (!useClaim) {
+      // 個別送信モードのみ: push 成功直後に confirm_status='sent' を更新
+      const { error: updateError } = await supabase
+        .from("participants")
+        .update({ confirm_status: "sent", current_question_index: 0 })
+        .eq("id", target.participant_id);
 
-    if (updateError) {
-      // update 失敗は翌日重複 push のリスク — 声高にログ
-      console.error(
-        `message-sender: CRITICAL: confirm_status update failed for participant_id=${target.participant_id}: ${updateError.message}. Duplicate push risk on next cron run.`,
-      );
+      if (updateError) {
+        console.error(
+          `message-sender: CRITICAL: confirm_status update failed for participant_id=${target.participant_id}: ${updateError.message}. Duplicate push risk on next cron run.`,
+        );
+      }
     }
 
     sent++;
+    targetResults.push({ eventId: target.event_id, oaConfigId: target.oa_config_id, success: true });
   }
 
-  // 7. レスポンス（処理は同期完了 — Open Question 3 推奨）
+  if (skippedConcurrent > 0) {
+    console.warn(
+      `message-sender: ${skippedConcurrent} target(s) were already claimed by a concurrent run — ` +
+        `配信ジョブが同一分に重なっている可能性がある`,
+    );
+  }
+
+  // 7. notification_logs に配信結果を記録（イベント単位で1行 — Pattern 4 の検証規約に揃える）
+  //    対象0件は本関数の早期returnで既にここへ来ないため、shouldLogConfirmBroadcast は
+  //    常にtrueだが、意図を明示し純関数として単体テスト可能にするために呼ぶ。
+  if (shouldLogConfirmBroadcast(confirmedTargets.length)) {
+    const aggregates = aggregateConfirmBroadcastResults(targetResults);
+    const rows = buildConfirmBroadcastLogRows(aggregates, skippedUnlinked);
+    const { error: logError } = await supabase.from("notification_logs").insert(rows);
+    if (logError) {
+      // ログ insert 失敗は配信結果に影響させない（notifier.ts と同じ流儀）
+      console.error(`message-sender: notification_logs insert failed: ${logError.message}`);
+    }
+  }
+
+  // 8. レスポンス（処理は同期完了 — Open Question 3 推奨）
   return new Response(
     JSON.stringify({
       status: "ok",
+      // 同時実行に先を越されてスキップした件数。0 でないなら配信ジョブが同一分に
+      // 重なっている可能性が高い（scripts/v11/check-cron-no-collision.ts を見ること）
+      skippedConcurrent,
       targets: confirmedTargets.length,
       sent,
       failed,

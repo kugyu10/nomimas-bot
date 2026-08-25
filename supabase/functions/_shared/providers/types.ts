@@ -17,6 +17,12 @@ export interface ScrapeResult {
   participants: ScrapedParticipant[];
   capacity: number | null; // "参加者 (2人／定員15人)" から抽出。表記なしの場合 null
   fetchedAt: string; // ISO8601
+  // 見つかったセクション数（Twipla: div.member_list の個数）。
+  // 「セクションが1つも無い」（=取得失敗・マークアップ変更・エラーページ等）と
+  // 「セクションはあるが参加者0人」を区別するためのフィールド。
+  // sectionCount === 0 のときは participants が空でも「取得失敗」として扱うべきで、
+  // 「全員が離脱した」という意味の0件と混同してはならない。
+  sectionCount: number;
 }
 
 export interface ParticipantListProvider {
