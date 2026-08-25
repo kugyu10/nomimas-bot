@@ -227,10 +227,18 @@ try {
     console.log(
       "[check-live-poll] (3.5) 2回目ポーリング直前のDBスナップショットを記録...",
     );
+    // 対象を kind='scrape_changes' かつ**このイベント**に絞る。
+    // 全 kind を数えると、同じPRで追加した confirm-broadcast-catchup cron
+    // （JST日中の :15/:45 に発火）が約40秒のスナップショット窓に割り込んで
+    // confirm_broadcast 行を挿入し、条件1が偽陽性で落ちる。
+    // ここで測りたいのは「2回目のポーリングが誤検知の通知を撃たなかったこと」なので、
+    // scraper が書く kind と当該イベントだけを見れば足りる。
     const [{ count: logsCountBeforeRaw }] = await sql<{ count: number }[]>`
       select count(*)::int as count
       from public.notification_logs
-      where (created_at at time zone 'Asia/Tokyo')::date = (now() at time zone 'Asia/Tokyo')::date
+      where kind = 'scrape_changes'
+        and event_id = ${eventId}::uuid
+        and (created_at at time zone 'Asia/Tokyo')::date = (now() at time zone 'Asia/Tokyo')::date
     `;
     logsCountBefore = logsCountBeforeRaw;
 
@@ -310,20 +318,22 @@ try {
     const [{ count: logsCountAfterRaw }] = await sql<{ count: number }[]>`
       select count(*)::int as count
       from public.notification_logs
-      where (created_at at time zone 'Asia/Tokyo')::date = (now() at time zone 'Asia/Tokyo')::date
+      where kind = 'scrape_changes'
+        and event_id = ${eventId}::uuid
+        and (created_at at time zone 'Asia/Tokyo')::date = (now() at time zone 'Asia/Tokyo')::date
     `;
     logsCountAfter = logsCountAfterRaw;
     console.log(
-      `[check-live-poll]   notification_logs(今日) 直前=${logsCountBefore}件 → 直後=${logsCountAfter}件`,
+      `[check-live-poll]   notification_logs(今日/scrape_changes/当該イベント) 直前=${logsCountBefore}件 → 直後=${logsCountAfter}件`,
     );
     if (logsCountAfter !== logsCountBefore) {
       fail(
-        `2回目ポーリング前後で notification_logs(今日)の行数が変化しました（${logsCountBefore}→${logsCountAfter}）。` +
+        `2回目ポーリング前後で notification_logs(今日/scrape_changes/当該イベント)の行数が変化しました（${logsCountBefore}→${logsCountAfter}）。` +
           "差分ゼロのはずなのに通知が発生した疑いがあります",
       );
     } else {
       ok(
-        "notification_logs(今日)の行数が変化していない（通知は発生していない）",
+        "notification_logs(今日/scrape_changes/当該イベント)の行数が変化していない（誤検知の通知は発生していない）",
       );
     }
 
@@ -370,18 +380,39 @@ try {
       );
     } else {
       const startedAt = secondPollStartedAt;
+
+      // scraper は**今回のスクレイプに存在した行しか upsert しない**（行の削除もしない）。
+      // Twipla ページから参加者が1名抜けると、その行は残ったまま scraped_at が古くなる。
+      // 「全行の scraped_at が更新されていること」を要求すると、離脱者が出た時点から
+      // 以後すべての実行で恒常的に落ちる（しかも「upsertが働いていない疑い」という
+      // 誤誘導のメッセージが出る）。
+      // 測りたいのは「今回のスクレイプで取れた分がちゃんと書かれたか」なので、
+      // **更新された行数が scraper 応答の count と一致するか**で判定する。
+      const freshRows = afterRows.filter(
+        (r) => r.scraped_at && r.scraped_at.getTime() >= startedAt.getTime(),
+      );
       const staleRows = afterRows.filter(
         (r) => !r.scraped_at || r.scraped_at.getTime() < startedAt.getTime(),
       );
+      const expectedFresh = secondResult?.body.count ?? 0;
+
       if (staleRows.length > 0) {
+        console.log(
+          `[check-live-poll]   注: scraped_at が古いままの行が ${staleRows.length} 件` +
+            `（ページから離脱した参加者の行。scraper は削除しない仕様なので異常ではない）`,
+        );
+      }
+
+      if (freshRows.length !== expectedFresh) {
         fail(
-          `2回目のポーリングで scraped_at が更新されていない行が ${staleRows.length} 件あります` +
+          `2回目のポーリングで scraped_at が更新された行が ${freshRows.length} 件で、` +
+            `scraper 応答の count=${expectedFresh} と一致しません` +
             `（upsertが働いていない疑い。2回目呼び出し開始=${startedAt.toISOString()}）`,
         );
       } else {
         ok(
-          `participants 全${afterRows.length}件の scraped_at が2回目のポーリングで更新されている` +
-            "（取得自体はちゃんと走っている証拠）",
+          `2回目のポーリングで scraped_at が更新された行が ${freshRows.length} 件 = 応答の count と一致` +
+            `（取得自体がちゃんと走っている証拠。据え置き ${staleRows.length} 件は離脱者の行）`,
         );
       }
     }

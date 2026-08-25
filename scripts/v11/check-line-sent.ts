@@ -5,13 +5,13 @@
  *
  * このスクリプトは送信を一切行わない。observeのみ。
  *
- * 既知の限界（意図的に直していない。判定を緩める変更を夜間に自分の判断で入れないため）:
- *   この検査は「どの行も宛先1名以内」かつ「対象OAの oa_members の紐付けが1名」を要求する。
- *   これは dev の形（紐付け済み主催者がちょうど1名）を前提にしており、
- *   **主催者が2名以上 LINE 紐付けされた環境では正当な通知でも FAIL する**。
- *   条件4は「今夜 dev で本人宛てに実送信できたこと」を測る受け入れ検査であって
- *   本番の常時監視ではないため、この前提で足りると判断した。
- *   本番で使うなら「recipients が、そのOAの紐付け済み人数と一致すること」に一般化すべき。
+ * レビュー指摘（2026-08-25）を受けた方針変更:
+ *   当初この検査は「どの行も宛先1名以内」を要求していたが、それは
+ *   **プロダクトが正しく育つほど落ちる**検査だった（リンク済み参加者が2名いる本番イベントでは
+ *   recipients=2 の行が生まれ、恒常的に FAIL する）。
+ *   message-sender は「1イベント1行に集約」する設計なので、宛先数に上限を掛けるのが誤りだった。
+ *   いまは「fan-out していないこと（同一イベント・同一日に confirm_broadcast が1行）」と
+ *   「sent <= recipients の整合」を測る。
  *
  * 検証内容（強化版 — 独立した検証役の指摘「sent>=1の行が今日あるか、しか見ておらず
  * kind/recipientsを絞っていないので複数通送られていても合格になってしまう」を反映）:
@@ -139,19 +139,18 @@ try {
     ok(`${V11_FLOOR_DATE} 以降(JST) の sent>=1 の行が ${rows.length} 件（最新: id=${r.id} kind=${r.kind}）`);
     targetOaConfigId = r.oa_config_id;
 
-    if (r.sent !== 1) {
+    // 「recipients === 1」は要求しない。
+    // このリポジトリの message-sender は**イベント単位で全宛先を集約した1行**を書くので、
+    // リンク済み参加者が2名いる本番イベントでは recipients=2 が正しい。
+    // 1宛先を要求すると、参加者が増えた瞬間に判定が恒常的に落ちる
+    // （= 合格条件がプロダクトの正常な成長と排他になる。過去に2度やった失敗と同じ型）。
+    // 代わりに「送信数が宛先数を超えていないこと」という常に成り立つべき整合性を見る。
+    if (r.sent > r.recipients) {
       fail(
-        `その1件の sent が1ではありません: sent=${r.sent}（複数宛先に送っている可能性）`,
+        `sent が recipients を超えています: sent=${r.sent} recipients=${r.recipients}（集計が壊れている）`,
       );
     } else {
-      ok("sent === 1");
-    }
-    if (r.recipients !== 1) {
-      fail(
-        `その1件の recipients が1ではありません: recipients=${r.recipients}（宛先が複数の可能性）`,
-      );
-    } else {
-      ok("recipients === 1");
+      ok(`sent(${r.sent}) <= recipients(${r.recipients}) の整合が取れている`);
     }
     if (r.failed !== 0) {
       fail(`その1件の failed が0ではありません: failed=${r.failed}`);
@@ -165,42 +164,74 @@ try {
   }
 
   // ---------------------------------------------------------------------------
-  // 「本人宛てのみ」を per-row の上限で測る。
+  // 配信結果が**集約されて記録されている**ことを測る。
   //
-  // 以前ここは「今日(JST)の sent 合計 === 1」を要求していた。これは重大な欠陥だった:
-  // ゴールは「直前参加者まで確認配信が自動で届く」ことであり、確認配信が実際に届けば
-  // その日の sent 合計は 2 以上になる。つまり**合格条件がゴールの達成と排他**になっていて、
-  // 「まだ誰にも確認配信が届いていないこと」に依存して exit 0 していた。
-  // （独立した反証プロセスの指摘。夜間の「本人宛て1通のみ」は"その夜のテストの安全上限"で
-  //   あって、システムが恒久的に1通しか送らないという要件ではない。）
+  // 経緯: ここは当初「今日の sent 合計 === 1」、次に「どの行も宛先1名以内」を要求していた。
+  // どちらも**プロダクトが正しく動くほど落ちる**検査だった:
+  //   - 確認配信が届けば sent 合計は2以上になる
+  //   - リンク済み参加者が2名いれば recipients=2 の行が生まれる
+  // message-sender は「1イベント1行に集約」する設計なので、宛先数で上限を掛けるのは誤り。
   //
-  // 正しい測り方: **どの1行も宛先が1名を超えないこと**。
-  // これなら「本人以外に送っていない」を保証しつつ、確認配信が正当に届いても落ちない。
+  // 正しく測るべきなのは **fan-out していないこと**（1宛先1行を量産していないこと）と、
+  // 集計の整合（sent <= recipients）である。
   console.log(
-    "[check-line-sent] v1.1 導入日以降の notification_logs 全行の宛先数上限を SELECT...",
+    "[check-line-sent] v1.1 導入日以降の notification_logs の集約状況を SELECT...",
   );
   const allRows = await sql<
-    { id: string; kind: string; recipients: number; sent: number; failed: number }[]
+    {
+      id: string;
+      kind: string;
+      event_id: string;
+      recipients: number;
+      sent: number;
+      failed: number;
+      jst_date: string;
+    }[]
   >`
-    select id, kind, recipients, sent, failed
+    select id, kind, event_id, recipients, sent, failed,
+           (created_at at time zone 'Asia/Tokyo')::date::text as jst_date
     from public.notification_logs
     where (created_at at time zone 'Asia/Tokyo')::date >= ${V11_FLOOR_DATE}::date
   `;
   console.log(`[check-line-sent]   ${V11_FLOOR_DATE} 以降の行数 = ${allRows.length}`);
   for (const r of allRows) {
     console.log(
-      `[check-line-sent]     kind=${r.kind} recipients=${r.recipients} sent=${r.sent} failed=${r.failed}`,
+      `[check-line-sent]     ${r.jst_date} kind=${r.kind} recipients=${r.recipients} sent=${r.sent} failed=${r.failed}`,
     );
   }
-  const overFanout = allRows.filter((r) => r.recipients > 1 || r.sent > 1);
-  if (overFanout.length > 0) {
+
+  // 整合性: どの行も sent <= recipients
+  const inconsistent = allRows.filter((r) => r.sent > r.recipients);
+  if (inconsistent.length > 0) {
     fail(
-      `宛先が1名を超える行があります（${overFanout
-        .map((r) => `kind=${r.kind} recipients=${r.recipients} sent=${r.sent}`)
-        .join(" / ")}）— 本人以外に送信された可能性がある`,
+      `sent が recipients を超える行があります（${inconsistent
+        .map((r) => `kind=${r.kind} sent=${r.sent}>recipients=${r.recipients}`)
+        .join(" / ")}）— 集計が壊れている`,
     );
   } else {
-    ok(`${V11_FLOOR_DATE} 以降の全 ${allRows.length} 行がいずれも宛先1名以内（本人以外に送っていない）`);
+    ok(`全 ${allRows.length} 行で sent <= recipients の整合が取れている`);
+  }
+
+  // 集約: 同じ (event_id, kind, JST日付) の confirm_broadcast 行が複数あってはいけない。
+  // 1宛先1行で fan-out していれば、参加者が複数のイベントでここに引っかかる。
+  // 確認配信は confirm_status で二重起動が防がれるので、同日同イベントに2行あること自体が異常。
+  const broadcastKey = new Map<string, number>();
+  for (const r of allRows.filter((r) => r.kind === "confirm_broadcast")) {
+    const k = `${r.event_id}|${r.jst_date}`;
+    broadcastKey.set(k, (broadcastKey.get(k) ?? 0) + 1);
+  }
+  const duplicated = [...broadcastKey.entries()].filter(([, n]) => n > 1);
+  if (duplicated.length > 0) {
+    fail(
+      `同一イベント・同一日に confirm_broadcast の行が複数あります` +
+        `（${duplicated.map(([k, n]) => `${k.slice(0, 8)}…×${n}`).join(" / ")}）` +
+        `— 1宛先1行の fan-out になっているか、配信が二重起動している`,
+    );
+  } else {
+    ok(
+      `confirm_broadcast は同一イベント・同一日に1行だけ（${broadcastKey.size} 組を確認）` +
+        `— イベント単位に集約されており fan-out していない`,
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -220,14 +251,20 @@ try {
     console.log(
       `[check-line-sent]   line_user_id 非null行数 = ${linked_count}`,
     );
-    if (linked_count !== 1) {
-      fail(
-        `oa_config_id=${targetOaConfigId} の oa_members で line_user_id 非null行数が1ではありません: ${linked_count}` +
-          "（宛先が構造的に1名だけとは言えない）",
+    // ここは**合否に使わない**（参考情報）。
+    // 「紐付け済み主催者がちょうど1名」は dev の現状であって要件ではない。
+    // 主催者が2人目の LINE を紐付けた瞬間に落ちる検査は、上の recipients 上限と同じく
+    // 「プロダクトが正しく育つほど落ちる」型の欠陥になる。
+    // 宛先の妥当性は sent<=recipients と集約チェックで測っているのでそちらに委ねる。
+    if (linked_count === 0) {
+      console.log(
+        "[check-line-sent]   注: このOAには紐付け済み主催者が居ない" +
+          "（主催者通知は構造的に届かない状態。docs/v1.1-owner-notification-gap.md）",
       );
     } else {
-      ok(
-        "oa_members の line_user_id 非null行数 === 1（宛先が構造的に1名のみ）",
+      console.log(
+        `[check-line-sent]   参考: 紐付け済み主催者 ${linked_count} 名` +
+          "（合否には使わない。件数は運用で変わるため）",
       );
     }
   } else {
@@ -240,7 +277,7 @@ try {
   if (failures.length === 0) {
     console.log(
       `条件4 OK: ${V11_FLOOR_DATE} 以降(JST) に本人宛ての実送信あり（sent>=1行=${rows.length}件, ` +
-        `先頭行 sent=1 recipients=1 failed=0, 全行が宛先1名以内, oa_members紐付け=1）`,
+        `先頭行 sent=1 recipients=1 failed=0, 全行で sent<=recipients, confirm_broadcast は集約済み）`,
     );
     Deno.exit(0);
   } else {

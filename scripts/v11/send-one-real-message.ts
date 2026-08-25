@@ -88,6 +88,14 @@ async function callScraper(): Promise<
 
 const sql = connectDev();
 
+// 一時的に status を書き換えた participant。finally で必ず元に戻すために外側で持つ。
+// scraper 呼び出しがネットワーク障害・502（sectionCount===0 ガード含む）で失敗したり、
+// スクリプトが中断されたりすると、declined のまま取り残される。
+// その participant は status='attending' を要求する get_confirm_targets から静かに外れ、
+// 後続の条件1b が**無関係に見える理由で**失敗する（レビュー指摘 low/L7）。
+let mutatedParticipantId: string | null = null;
+let originalStatus: string | null = null;
+
 try {
   // -------------------------------------------------------------------------
   // (1) 多重送信防止: 今日(JST)に sent>=1 の notification_logs 行が既にあるか
@@ -178,6 +186,13 @@ try {
   }
   const participantId = target[0].id;
 
+  // 元の status を控えてから書き換える（finally で必ず戻す）
+  const [{ status: prevStatus }] = await sql<{ status: string }[]>`
+    select status from public.participants where id = ${participantId}
+  `;
+  mutatedParticipantId = participantId;
+  originalStatus = prevStatus;
+
   await sql`
     update public.participants
     set status = 'declined'
@@ -267,5 +282,32 @@ try {
   console.error("[send-one-real-message] 予期しないエラー:", err);
   Deno.exit(1);
 } finally {
+  // status を書き換えたまま終わらせない。
+  // 正常系では (5) の scraper 呼び出しが実サイトの attending で上書きしてくれるが、
+  // それが失敗した場合でもここで確実に戻す。
+  if (mutatedParticipantId && originalStatus) {
+    try {
+      const restored = await sql<{ id: string }[]>`
+        update public.participants
+        set status = ${originalStatus}
+        where id = ${mutatedParticipantId} and status = 'declined'
+        returning id
+      `;
+      if (restored.length > 0) {
+        console.log(
+          `[send-one-real-message] 後片付け: status を '${originalStatus}' に戻した（id=${mutatedParticipantId}）`,
+        );
+      } else {
+        console.log(
+          "[send-one-real-message] 後片付け: status は既に scraper によって復元済み（戻す必要なし）",
+        );
+      }
+    } catch (e) {
+      console.error(
+        `[send-one-real-message] CRITICAL: status の復元に失敗した。` +
+          `id=${mutatedParticipantId} を手で '${originalStatus}' に戻すこと: ${e}`,
+      );
+    }
+  }
   await sql.end();
 }

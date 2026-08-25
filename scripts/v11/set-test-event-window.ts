@@ -42,8 +42,14 @@ const OUT_DAYS = 60;
 const IN_DAYS = 1;
 
 const mode = (Deno.args[0] ?? "status").toLowerCase();
-if (!["in", "out", "status"].includes(mode)) {
-  console.error(`使い方: set-test-event-window.ts <in|out|status>（受け取った引数: ${mode}）`);
+if (!["in", "out", "poll", "status"].includes(mode)) {
+  console.error(
+    `使い方: set-test-event-window.ts <in|out|poll|status>（受け取った引数: ${mode}）\n` +
+      "  in   … 確認配信の窓の中（実際に LINE が届く）\n" +
+      "  out  … 窓の外（ポーリングも確認配信も対象外）\n" +
+      "  poll … ポーリングだけ有効・確認配信は無効（LINE は届かない）\n" +
+      "  status … 現状を表示するだけ",
+  );
   Deno.exit(2);
 }
 
@@ -89,14 +95,30 @@ try {
     Deno.exit(0);
   }
 
-  const days = mode === "in" ? IN_DAYS : OUT_DAYS;
+  // poll モード: ポーリングの窓には入るが確認配信の窓には入らない状態を作る。
+  //   ポーリング cron の条件 : days_out <= greatest(confirm_days_before, 3)
+  //   確認配信の条件         : days_out <= confirm_days_before
+  // よって confirm_days_before=0 かつ days_out=2 なら「ポーリングは対象・配信は対象外」になる。
+  // cron が実際に scraper を叩いた証拠（return_message='1 row'）を、
+  // LINE を1通も送らずに作りたいときに使う。
+  const POLL_DAYS = 2;
+  const days = mode === "in" ? IN_DAYS : mode === "poll" ? POLL_DAYS : OUT_DAYS;
 
-  // event_date のみ更新する。participants は触らない。
-  await sql`
-    update public.events
-    set event_date = ((now() at time zone 'Asia/Tokyo')::date + ${days}::integer)
-    where id = ${ev.event_id}::uuid
-  `;
+  if (mode === "poll") {
+    await sql`
+      update public.events
+      set event_date = ((now() at time zone 'Asia/Tokyo')::date + ${days}::integer),
+          confirm_days_before = 0
+      where id = ${ev.event_id}::uuid
+    `;
+  } else {
+    // event_date のみ更新する。participants は触らない。
+    await sql`
+      update public.events
+      set event_date = ((now() at time zone 'Asia/Tokyo')::date + ${days}::integer)
+      where id = ${ev.event_id}::uuid
+    `;
+  }
 
   const after = await sql<{ event_date: string }[]>`
     select event_date from public.events where id = ${ev.event_id}::uuid
@@ -109,7 +131,16 @@ try {
   console.log(`\n更新後: event_date=${after[0]?.event_date}`);
   console.log(`  確認配信(cronモード)の対象人数: ${targetsAfter.length}`);
 
-  if (mode === "out") {
+  if (mode === "poll") {
+    if (targetsAfter.length !== 0) {
+      console.error("警告: poll モードのはずが確認配信の対象に残っています。手で確認してください。");
+      Deno.exit(1);
+    }
+    console.log(
+      `OK: ポーリングのみ有効にしました（event_date=${days}日後 / confirm_days_before=0）。` +
+        "15分ごとの scraper 呼び出しは走りますが、確認配信は送られません。",
+    );
+  } else if (mode === "out") {
     if (targetsAfter.length !== 0) {
       console.error(
         "警告: 窓の外に出したはずなのに、まだ確認配信の対象に残っています。手で確認してください。",

@@ -41,6 +41,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createServiceClient } from "../_shared/supabase.ts";
 import { issueStatelessToken } from "../_shared/line/token.ts";
 import { pushMessage } from "../_shared/line/client.ts";
+import { deriveRetryKey } from "../_shared/line/retry_key.ts";
 import { buildInitialMessages } from "../_shared/confirm/messages.ts";
 import type { EventInfo } from "../_shared/confirm/messages.ts";
 import { formatEventDate, formatMeetingAt } from "../_shared/confirm/format.ts";
@@ -396,15 +397,35 @@ Deno.serve(async (req) => {
       }
       if (!claimed || claimed.length === 0) {
         // 他の実行が先に確保した（= その実行が送る）。二重送信を避けてスキップする。
-        // 失敗でも成功でもないので targetResults には積まない。
+        // **監査ログには積む**。積まないと「全件が先を越された」場合に targetResults が空になり、
+        // notification_logs に1行も残らない。重複実行を可視化するために足したログが、
+        // まさに重複実行のときだけ効かなくなる（レビュー指摘 low/L6）。
         skippedConcurrent++;
+        targetResults.push({
+          eventId: target.event_id,
+          oaConfigId: target.oa_config_id,
+          success: false,
+          skippedConcurrent: true,
+        });
         continue;
       }
     }
 
     // push送信（D-02: 1人=1通カウント）
+    //
+    // retry key は「この参加者への、このイベントの、初回確認バンドル」から決定的に導出する。
+    // claim-then-send は push 失敗時に pending へ差し戻して次回再試行させるが、
+    // pushMessage は「LINE は受理したがレスポンス受信前に接続が切れた」場合にも throw する。
+    // キーがランダムだと再試行が別送信として受理され利用者に2通届くため、
+    // 同じ送信意図なら同じキーになるようにして LINE 側の重複排除（409）に載せる。
+    const retryKey = await deriveRetryKey(
+      "confirm-initial",
+      target.participant_id,
+      target.event_id,
+    );
+
     try {
-      await pushMessage(token, target.line_user_id, messages);
+      await pushMessage(token, target.line_user_id, messages, retryKey);
     } catch (err) {
       console.error(
         `message-sender: pushMessage failed for participant_id=${target.participant_id}: ${(err as Error).message}`,

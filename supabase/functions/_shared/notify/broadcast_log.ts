@@ -18,6 +18,11 @@ export interface ConfirmBroadcastTargetResult {
   oaConfigId: string;
   /** push 成功なら true。questions未設定/buildInitialMessages失敗/push失敗はすべて false */
   success: boolean;
+  /**
+   * 他の実行（同一分に発火した別の配信ジョブなど）が先に claim したため、
+   * この実行では push しなかった場合に true。**失敗ではない**ので failed には数えない。
+   */
+  skippedConcurrent?: boolean;
 }
 
 /** イベント単位に集計した結果 */
@@ -27,6 +32,8 @@ export interface ConfirmBroadcastAggregate {
   recipients: number;
   sent: number;
   failed: number;
+  /** 他の実行が先に claim したためこの実行では送らなかった件数（失敗ではない） */
+  skippedConcurrent: number;
 }
 
 /** notification_logs への insert 用の行（participant_id は常に null — 1行=Nイベント参加者の集計） */
@@ -44,6 +51,8 @@ export interface ConfirmBroadcastLogRow {
     sent: number;
     failed: number;
     skipped_no_line_id: number;
+    /** 同時実行に先を越された件数。0 でなければ配信ジョブが同一分に重なっている疑い */
+    skipped_concurrent: number;
   };
 }
 
@@ -71,12 +80,24 @@ export function aggregateConfirmBroadcastResults(
   for (const r of results) {
     let agg = byEvent.get(r.eventId);
     if (!agg) {
-      agg = { eventId: r.eventId, oaConfigId: r.oaConfigId, recipients: 0, sent: 0, failed: 0 };
+      agg = {
+        eventId: r.eventId,
+        oaConfigId: r.oaConfigId,
+        recipients: 0,
+        sent: 0,
+        failed: 0,
+        skippedConcurrent: 0,
+      };
       byEvent.set(r.eventId, agg);
       order.push(r.eventId);
     }
+    // recipients は「この実行が対象として検討した人数」。
+    // 同時実行に先を越された分もここに含めることで、レスポンスの targets と一致し、
+    // recipients = sent + failed + skippedConcurrent が常に成り立つ。
     agg.recipients++;
-    if (r.success) {
+    if (r.skippedConcurrent) {
+      agg.skippedConcurrent++;
+    } else if (r.success) {
       agg.sent++;
     } else {
       agg.failed++;
@@ -117,6 +138,9 @@ export function buildConfirmBroadcastLogRows(
         sent: agg.sent,
         failed: agg.failed,
         skipped_no_line_id: skipped,
+        // 同時実行に先を越された件数。0 でなければ配信ジョブが同一分に重なっている疑い。
+        // notification_logs に専用列は無いので件数のみ detail に載せる（PIIは入れない）。
+        skipped_concurrent: agg.skippedConcurrent,
       },
     };
   });

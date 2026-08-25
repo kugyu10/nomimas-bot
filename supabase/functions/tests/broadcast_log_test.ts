@@ -73,8 +73,8 @@ Deno.test("aggregateConfirmBroadcastResults: 複数イベント混在 → イベ
 
   const a = aggregates.find((x) => x.eventId === EVENT_A);
   const b = aggregates.find((x) => x.eventId === EVENT_B);
-  assertEquals(a, { eventId: EVENT_A, oaConfigId: OA_1, recipients: 2, sent: 1, failed: 1 });
-  assertEquals(b, { eventId: EVENT_B, oaConfigId: OA_2, recipients: 3, sent: 2, failed: 1 });
+  assertEquals(a, { eventId: EVENT_A, oaConfigId: OA_1, recipients: 2, sent: 1, failed: 1, skippedConcurrent: 0 });
+  assertEquals(b, { eventId: EVENT_B, oaConfigId: OA_2, recipients: 3, sent: 2, failed: 1, skippedConcurrent: 0 });
 });
 
 // ==================== buildConfirmBroadcastLogRows ====================
@@ -121,7 +121,7 @@ Deno.test("buildConfirmBroadcastLogRows: detail は件数キーのみ（PIIな�
   // detail のキーは想定の件数キーのみ
   assertEquals(
     Object.keys(detail).sort(),
-    ["failed", "recipients", "sent", "skipped_no_line_id"].sort(),
+    ["failed", "recipients", "sent", "skipped_no_line_id", "skipped_concurrent"].sort(),
   );
   // すべての値が number（名前・LINE userIdなどの文字列PIIが混入していない）
   for (const value of Object.values(detail)) {
@@ -132,4 +132,43 @@ Deno.test("buildConfirmBroadcastLogRows: detail は件数キーのみ（PIIな�
 Deno.test("buildConfirmBroadcastLogRows: 集計0件（対象なし） → 行も0件", () => {
   const rows = buildConfirmBroadcastLogRows([], 0);
   assertEquals(rows, []);
+});
+
+// --- 同時実行に先を越されたケース（レビュー指摘 L6 の回帰テスト） ---
+
+Deno.test("aggregate: skippedConcurrent は failed に数えず、recipients には含める", () => {
+  const [agg] = aggregateConfirmBroadcastResults([
+    { eventId: EVENT_A, oaConfigId: OA_1, success: true },
+    { eventId: EVENT_A, oaConfigId: OA_1, success: false, skippedConcurrent: true },
+    { eventId: EVENT_A, oaConfigId: OA_1, success: false },
+  ]);
+  assertEquals(agg.recipients, 3, "検討した人数は3");
+  assertEquals(agg.sent, 1);
+  assertEquals(agg.failed, 1, "先を越された分を failed に混ぜてはいけない");
+  assertEquals(agg.skippedConcurrent, 1);
+  assertEquals(
+    agg.sent + agg.failed + agg.skippedConcurrent,
+    agg.recipients,
+    "recipients = sent + failed + skippedConcurrent が常に成り立つこと",
+  );
+});
+
+Deno.test("全件が先を越されても監査ログの行が1行残る", () => {
+  // これが空配列になると、重複実行を可視化するために足したログが
+  // まさに重複実行のときだけ残らない、という状態になる
+  const aggs = aggregateConfirmBroadcastResults([
+    { eventId: EVENT_A, oaConfigId: OA_1, success: false, skippedConcurrent: true },
+    { eventId: EVENT_A, oaConfigId: OA_1, success: false, skippedConcurrent: true },
+  ]);
+  const rows = buildConfirmBroadcastLogRows(aggs, 5);
+  assertEquals(rows.length, 1, "対象が居たなら実行記録は必ず残す");
+  assertEquals(rows[0].sent, 0);
+  assertEquals(rows[0].failed, 0);
+  assertEquals(rows[0].recipients, 2);
+  assertEquals(rows[0].skipped_no_line_id, 5, "未紐付け件数も捨てない");
+  assertEquals(
+    rows[0].detail.skipped_concurrent,
+    2,
+    "先を越された件数が detail に残ること（同一分の重なりに気づく手がかり）",
+  );
 });
