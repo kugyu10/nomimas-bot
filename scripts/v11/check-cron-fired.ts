@@ -187,6 +187,35 @@ try {
         sawZeroRows = true;
       }
 
+      // 直近 RUN_HISTORY_LIMIT 件の中に無くても、**全履歴**に「対象ありで成功した実行」が
+      // あるなら「実際に scraper を叩いた証拠」は存在する。
+      //
+      // ポーリング対象が無い期間は15分ごとに '0 rows' が積まれるため、証拠は数日で
+      // 直近N件の窓から押し出される（独立検証役が「近いうちに落ちる」と指摘したとおり、
+      // 実際に約600回の '0 rows' に押し流されて落ちた）。
+      // 件数スキャンではなく DB への存在確認で拾う。
+      if (!targetRun) {
+        const [everRun] = await sql<
+          { runid: number; return_message: string | null; start_time: Date }[]
+        >`
+          select runid, return_message, start_time
+          from cron.job_run_details
+          where jobid = ${jobId}
+            and status = 'succeeded'
+            and return_message is not null
+            and return_message ~ '^[1-9][0-9]* row'
+          order by start_time desc
+          limit 1
+        `;
+        if (everRun) {
+          targetRun = everRun;
+          console.log(
+            `[check-cron-fired]   注: 直近${runs.length}件には無いが、全履歴に対象ありの` +
+              `成功実行がある（runid=${everRun.runid} start_time=${everRun.start_time.toISOString()}）`,
+          );
+        }
+      }
+
       if (targetRun) {
         ok(
           `succeeded の行に return_message='0 rows'ではない行があります` +
@@ -205,8 +234,10 @@ try {
         );
       } else if (sawZeroRows) {
         fail(
-          `succeeded の行が全て return_message='0 rows' です（ファンアウトSQLの対象が0件で、` +
-            `net.http_post が1件も発行されていません。窓内にイベントが無い可能性があります）`,
+          `succeeded の行が全て return_message='0 rows' です（直近${runs.length}件も全履歴も）。` +
+            `ファンアウトSQLの対象が0件で net.http_post が1件も発行されていません。` +
+            `窓内にイベントが無い可能性があります` +
+            `（dev で証拠を作り直すには scripts/v11/set-test-event-window.ts poll）`,
         );
       } else {
         // succeededRuns.length > 0 のはずなのでここには到達しないが、念のため

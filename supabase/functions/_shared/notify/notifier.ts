@@ -241,6 +241,8 @@ export async function notifyScrapeChanges(
     eventDate: string | null;
     newParticipants: { displayName: string; status: string }[];
     statusChanges: { displayName: string; from: string; to: string }[];
+    /** ページから消えた参加者（= 参加取消）。件数のみ使う */
+    departedParticipants?: { naturalKey: string; status: string }[];
   },
 ): Promise<NotifyResult> {
   const baseResult: NotifyResult = {
@@ -301,6 +303,7 @@ export async function notifyScrapeChanges(
           recipients_error: true,
           new: params.newParticipants.length,
           statusChanged: params.statusChanges.length,
+          departed: params.departedParticipants?.length ?? 0,
         },
       });
     if (logError) {
@@ -332,6 +335,7 @@ export async function notifyScrapeChanges(
       const text = buildScrapeChangesNotification(params.eventTitle, {
         newCount: params.newParticipants.length,
         statusChangedCount: params.statusChanges.length,
+        departedCount: params.departedParticipants?.length ?? 0,
       });
       const messages = [{ type: "text", text }];
 
@@ -365,6 +369,7 @@ export async function notifyScrapeChanges(
       detail: {
         new: params.newParticipants.length,
         statusChanged: params.statusChanges.length,
+        departed: params.departedParticipants?.length ?? 0,
       },
     });
 

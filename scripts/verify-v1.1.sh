@@ -6,8 +6,9 @@
 #
 #   1. 実Twipla(741123)を fetch→parse→dev DB upsert でき、
 #      さらに2回連続ポーリングで差分ゼロ（誤検知で通知を撃たない）
-#   2. 保存済み実HTMLを加工した擬似ポーリングで3遷移が発火する
-#      （新規追加 / attending→declined / declined→attending）
+#   2. 保存済み実HTMLを加工した擬似ポーリングで遷移が発火する
+#      （新規追加 / attending→declined / declined→attending /
+#        離脱=ページから行ごと消える / 離脱からの復帰）
 #   3. dev で cron が実際に発火した記録がある（cron.job_run_details に1行以上）
 #   4. dev OA から本人宛ての実送信が sent:1 としてログに残っている
 #   5. 既存が壊れていない（admin vitest / eslint / next build / deno test すべて exit 0、
@@ -34,7 +35,7 @@ export NO_COLOR=1
 
 # ベースライン（2026-08-25 00:12 実測）。退行判定に使う。
 BASELINE_VITEST_TESTS=76
-BASELINE_DENO_PASSED=112
+BASELINE_DENO_PASSED=112  # 現在は 150 前後。減っていないことだけを見る
 
 FAILED=0
 declare -a RESULTS=()
@@ -76,10 +77,10 @@ if deno test --config supabase/functions/deno.json --allow-read \
   # 遷移3種と誤検知なしの4項目が実際に走ったことを、テスト名で確認する
   # （ファイルが空でも exit 0 になるため、件数ゼロを通してしまわないようにする）
   n_cases="$(grep -c '\.\.\. *ok' /tmp/v11-cond2.log || true)"
-  if [ "${n_cases:-0}" -ge 5 ]; then
-    pass "条件2: twipla_polling_test.ts が ${n_cases} 件 ok（新規/attending→declined/declined→attending/誤検知なし/capacity）"
+  if [ "${n_cases:-0}" -ge 7 ]; then
+    pass "条件2: twipla_polling_test.ts が ${n_cases} 件 ok（新規/attending→declined/declined→attending/離脱/離脱からの復帰/誤検知なし/capacity）"
   else
-    fail "条件2: テストは exit 0 だが ok が ${n_cases} 件しかない（5件以上必要）"
+    fail "条件2: テストは exit 0 だが ok が ${n_cases} 件しかない（7件以上必要）"
     tail -20 /tmp/v11-cond2.log
   fi
 else

@@ -5,7 +5,7 @@
 import { z } from "zod";
 import { resolveProvider } from "../_shared/providers/registry.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
-import { diffParticipants } from "../_shared/notify/diff.ts";
+import { diffParticipants, shouldApplyDepartures } from "../_shared/notify/diff.ts";
 import { notifyScrapeChanges } from "../_shared/notify/notifier.ts";
 
 // zod 4 では z.url() で URL バリデーション（z.string().url() は旧 zod 3 の書き方）
@@ -100,7 +100,11 @@ Deno.serve(async (req: Request) => {
   }
 
   // 通知結果（レスポンスに含める）
-  let changes: { new: number; statusChanged: number } = { new: 0, statusChanged: 0 };
+  let changes: { new: number; statusChanged: number; departed: number } = {
+    new: 0,
+    statusChanged: 0,
+    departed: 0,
+  };
   let notified = 0;
 
   if (epu) {
@@ -200,10 +204,46 @@ Deno.serve(async (req: Request) => {
         }));
         const diff = diffParticipants(existingRows, incoming);
 
-        if (diff.newParticipants.length > 0 || diff.statusChanges.length > 0) {
+        // (4b-1) 離脱者（ページから行ごと消えた参加者）を 'left' として記録する。
+        //
+        // Twipla では参加を取り消すと行が消えるため、セクション間の移動とは別の変化になる。
+        // 記録しないと DB の行が attending のまま残り、get_confirm_targets が
+        // もう来ない人を配信対象に含め続ける（issue #2）。
+        // status を 'left' にすれば get_confirm_targets（status='attending' で絞る）から
+        // 自動的に外れるので、関数側の変更は要らない。
+        let departedApplied = 0;
+        if (diff.departedParticipants.length > 0) {
+          if (!shouldApplyDepartures(incoming.length, existingRows.length)) {
+            // 既存が居るのに今回0件 = 取得異常の疑い。全員を配信対象から外す事故を防ぐため適用しない。
+            console.error(
+              `[scraper] SUSPICIOUS: 既存 ${existingRows.length} 件に対し取得0件のため、` +
+                `離脱 ${diff.departedParticipants.length} 件の記録を見送った（取得異常の疑い）`,
+            );
+          } else {
+            const departedKeys = diff.departedParticipants.map((d) => d.naturalKey);
+            const { error: leftError, count: leftCount } = await supabase
+              .from("participants")
+              .update({ status: "left" }, { count: "exact" })
+              .eq("event_platform_url_id", epu.id)
+              .in("natural_key", departedKeys);
+            if (leftError) {
+              // 記録失敗は保存経路を壊さない（次回のポーリングで再度検出される）
+              console.error(`[scraper] departed update error: ${leftError.message}`);
+            } else {
+              departedApplied = leftCount ?? departedKeys.length;
+              console.log(`[scraper] marked ${departedApplied} participant(s) as left`);
+            }
+          }
+        }
+
+        if (
+          diff.newParticipants.length > 0 || diff.statusChanges.length > 0 ||
+          departedApplied > 0
+        ) {
           changes = {
             new: diff.newParticipants.length,
             statusChanged: diff.statusChanges.length,
+            departed: departedApplied,
           };
 
           // イベント情報をネスト select から取得（型を安全に取り出す）
@@ -220,6 +260,7 @@ Deno.serve(async (req: Request) => {
                 eventDate: eventsData.event_date,
                 newParticipants: diff.newParticipants,
                 statusChanges: diff.statusChanges,
+                departedParticipants: diff.departedParticipants.slice(0, departedApplied),
               });
               notified = r.sent;
               console.log(

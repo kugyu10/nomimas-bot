@@ -45,7 +45,11 @@ export function buildCompletionNotification(
  */
 export function buildScrapeChangesNotification(
   eventTitle: string,
-  counts: { newCount: number; statusChangedCount: number },
+  counts: { newCount: number; statusChangedCount: number; departedCount?: number },
 ): string {
-  return `【${eventTitle}】参加者情報が更新されました（新規${counts.newCount}名・出欠変更${counts.statusChangedCount}名）`;
+  // 参加取消（ページから行ごと消えた人）は出欠変更とは別の変化なので独立して出す。
+  // departedCount は任意引数にしてある（既存の呼び出しを壊さないため）が、
+  // scraper からは常に渡る。0 のときも表示して「減っていない」ことを明示する。
+  const departed = counts.departedCount ?? 0;
+  return `【${eventTitle}】参加者情報が更新されました（新規${counts.newCount}名・出欠変更${counts.statusChangedCount}名・参加取消${departed}名）`;
 }
