@@ -100,10 +100,28 @@ Deno.serve(async (req: Request) => {
   }
 
   // 通知結果（レスポンスに含める）
-  let changes: { new: number; statusChanged: number; departed: number } = {
+  let changes: {
+    new: number;
+    statusChanged: number;
+    departed: number;
+    /** 実際に 'left' に更新できた件数（departed は検出件数） */
+    departedApplied: number;
+    /**
+     * 取得異常の疑いで離脱の適用を見送った件数。
+     *
+     * これをレスポンスに出さないと、`shouldApplyDepartures` が false を返した経路が
+     * **正常系の「変化なし」と完全に同一のレスポンス**になる（incoming が空なので
+     * new も statusChanged も0、departed も0のまま）。痕跡が console.error だけになり、
+     * cron 駆動で誰もログを見ていなければ「スクレイプが壊れて既存全員が消えて見えている」
+     * 状態が無言で続く（PR #5 レビュー2 の指摘）。
+     */
+    departuresSuspended: number;
+  } = {
     new: 0,
     statusChanged: 0,
     departed: 0,
+    departedApplied: 0,
+    departuresSuspended: 0,
   };
   let notified = 0;
 
@@ -217,9 +235,12 @@ Deno.serve(async (req: Request) => {
         // status を 'left' にすれば get_confirm_targets（status='attending' で絞る）から
         // 自動的に外れるので、関数側の変更は要らない。
         let departedApplied = 0;
+        let departuresSuspended = 0;
         if (diff.departedParticipants.length > 0) {
           if (!shouldApplyDepartures(incoming.length, existingRows.length)) {
             // 既存が居るのに今回0件 = 取得異常の疑い。全員を配信対象から外す事故を防ぐため適用しない。
+            // 件数をレスポンスにも出す（この経路が正常系と区別できないと運用で気づけない）。
+            departuresSuspended = diff.departedParticipants.length;
             console.error(
               `[scraper] SUSPICIOUS: 既存 ${existingRows.length} 件に対し取得0件のため、` +
                 `離脱 ${diff.departedParticipants.length} 件の記録を見送った（取得異常の疑い）`,
@@ -266,6 +287,18 @@ Deno.serve(async (req: Request) => {
           }
         }
 
+        // 適用を見送った場合も、レスポンスで区別できるように changes を更新する
+        // （通知は飛ばさない — 実際には何も変わっていないため）。
+        if (departuresSuspended > 0) {
+          changes = {
+            new: 0,
+            statusChanged: 0,
+            departed: 0,
+            departedApplied: 0,
+            departuresSuspended,
+          };
+        }
+
         if (
           diff.newParticipants.length > 0 || diff.statusChanges.length > 0 ||
           departedApplied > 0
@@ -273,11 +306,13 @@ Deno.serve(async (req: Request) => {
           changes = {
             new: diff.newParticipants.length,
             statusChanged: diff.statusChanges.length,
-            // **検出した件数**を報告する。DB の更新行数(departedApplied)を使うと、
-            // 並行して既に left になっていた等で更新が0行だったときに
-            // 「離脱を検出しているのに参加取消0名」と過小報告になる（PR #5 レビュー指摘）。
-            // 実際に適用できた件数は上の console.log に出している。
+            // 検出件数と実適用件数の**両方**を出す。
+            // 「検出と適用を分ける」のがこの設計の芯なので、報告側でも混ぜない
+            // （PR #5 レビュー2 の指摘）。UPDATE が途中で失敗すると
+            // departed > departedApplied になり、その差が運用の手がかりになる。
             departed: diff.departedParticipants.length,
+            departedApplied,
+            departuresSuspended: 0,
           };
 
           // イベント情報をネスト select から取得（型を安全に取り出す）
@@ -295,6 +330,7 @@ Deno.serve(async (req: Request) => {
                 newParticipants: diff.newParticipants,
                 statusChanges: diff.statusChanges,
                 departedParticipants: diff.departedParticipants,
+                departedAppliedCount: departedApplied,
               });
               notified = r.sent;
               console.log(

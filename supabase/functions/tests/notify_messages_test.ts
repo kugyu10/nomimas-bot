@@ -55,7 +55,7 @@ Deno.test("buildCompletionNotification: confirmedCount 未指定時は件数行�
 // ==================== scrape_changes 通知 ====================
 
 Deno.test("buildScrapeChangesNotification: イベント名・件数・更新種別の3要素を含む", () => {
-  const msg = buildScrapeChangesNotification("夏の飲み会", { newCount: 2, statusChangedCount: 1 });
+  const msg = buildScrapeChangesNotification("夏の飲み会", { newCount: 2, statusChangedCount: 1, departedCount: 0 });
   assertMatch(msg, /夏の飲み会/, "イベント名を含む");
   assertMatch(msg, /2/, "新規件数を含む");
   assertMatch(msg, /1/, "出欠変更件数を含む");
@@ -63,12 +63,12 @@ Deno.test("buildScrapeChangesNotification: イベント名・件数・更新種�
 });
 
 Deno.test("buildScrapeChangesNotification: 出力に LINE userId パターンが含まれない（T-04-03）", () => {
-  const msg = buildScrapeChangesNotification("dev-event", { newCount: 1, statusChangedCount: 1 });
+  const msg = buildScrapeChangesNotification("dev-event", { newCount: 1, statusChangedCount: 1, departedCount: 0 });
   assertNotMatch(msg, LINE_USER_ID_PATTERN, "LINE userId を含まない");
 });
 
 Deno.test("buildScrapeChangesNotification: newCount=0 / statusChangedCount=1 の場合も動作する", () => {
-  const msg = buildScrapeChangesNotification("dev-event", { newCount: 0, statusChangedCount: 1 });
+  const msg = buildScrapeChangesNotification("dev-event", { newCount: 0, statusChangedCount: 1, departedCount: 0 });
   assertMatch(msg, /dev-event/, "イベント名を含む");
   assertNotMatch(msg, LINE_USER_ID_PATTERN, "LINE userId を含まない");
 });
@@ -89,6 +89,6 @@ Deno.test("buildCompletionNotification: eventTitle・participantName + 任意の
 });
 
 Deno.test("buildScrapeChangesNotification: 引数は eventTitle と counts オブジェクトの2つのみ", () => {
-  const msg = buildScrapeChangesNotification("テストイベント", { newCount: 3, statusChangedCount: 0 });
+  const msg = buildScrapeChangesNotification("テストイベント", { newCount: 3, statusChangedCount: 0, departedCount: 0 });
   assertEquals(typeof msg, "string");
 });

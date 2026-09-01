@@ -41,7 +41,13 @@ interface ScraperResponse {
   platform?: string;
   count?: number;
   saved?: boolean;
-  changes?: { new: number; statusChanged: number; departed?: number };
+  changes?: {
+    new: number;
+    statusChanged: number;
+    departed?: number;
+    departedApplied?: number;
+    departuresSuspended?: number;
+  };
   notified?: number;
   error?: string;
 }
@@ -184,8 +190,23 @@ try {
   attendingCount = attendingRows.length;
   console.log(`[check-live-poll]   attending行数=${attendingCount}`);
 
-  if (attendingCount === 0) {
-    fail("participants に status='attending' の行が1件もありません");
+  // ページに参加者が居るのに attending 行が無ければ異常。
+  // 一方、**実ページの参加者が全員参加取消した**場合は全行が 'left' になり、
+  // attending が0になるのが正しい状態になる（離脱検出を入れた帰結）。
+  // 無条件に不合格にすると、その時点からこの検査が恒久的に落ちる。
+  // レビュー2 の提案は `status in ('attending','left')` だったが、それでは
+  // 「取得した参加者がちゃんと保存されたか」を測れなくなるので採らない。
+  // **応答の count と突き合わせる**のが正確: ページが0人なら attending 0件でよい。
+  const pageCount = firstResult?.body.count ?? 0;
+  if (attendingCount === 0 && pageCount > 0) {
+    fail(
+      `ページには ${pageCount} 名居るのに participants の status='attending' が0件です` +
+        "（保存経路の異常、または全行が 'left' に落ちている可能性）",
+    );
+  } else if (attendingCount === 0) {
+    console.log(
+      "[check-live-poll]   注: attending 0件だが応答の count も0（ページに参加者が居ない）ため異常としない",
+    );
   } else {
     ok(`participants attending行数=${attendingCount}`);
 
@@ -293,14 +314,21 @@ try {
     // 「誤検知なし」と表示して条件1を通してしまう（PR #5 レビュー指摘）。
     const changes = secondResult.body.changes;
     const departed = changes?.departed ?? 0;
-    if (!changes || changes.new !== 0 || changes.statusChanged !== 0 || departed !== 0) {
+    // departuresSuspended > 0 は「取得異常の疑いで離脱の適用を見送った」状態。
+    // 正常系のレスポンスと数値が同じになる経路なので、ここで拾わないと
+    // dev の実ポーリングでも異常を捕まえられない。
+    const suspended = changes?.departuresSuspended ?? 0;
+    if (
+      !changes || changes.new !== 0 || changes.statusChanged !== 0 ||
+      departed !== 0 || suspended !== 0
+    ) {
       fail(
         `2回目の changes が {new:0, statusChanged:0, departed:0} ではありません: ${
           JSON.stringify(changes)
         }`,
       );
     } else {
-      ok("2回目 changes={new:0, statusChanged:0, departed:0}（誤検知なし）");
+      ok("2回目 changes={new:0, statusChanged:0, departed:0, departuresSuspended:0}（誤検知なし）");
     }
     if (secondResult.body.notified !== 0) {
       fail(

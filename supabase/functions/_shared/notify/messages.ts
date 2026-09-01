@@ -45,11 +45,13 @@ export function buildCompletionNotification(
  */
 export function buildScrapeChangesNotification(
   eventTitle: string,
-  counts: { newCount: number; statusChangedCount: number; departedCount?: number },
+  // departedCount は**必須**にしてある。オプショナルだと将来別の呼び出しを足したとき
+  // 渡し忘れが型で捕まらず、黙って「参加取消0名」になる（PR #5 レビュー2 の指摘）。
+  // 本番の呼び出し元は notifier.ts の1箇所だけなので、必須化のコストは小さい。
+  counts: { newCount: number; statusChangedCount: number; departedCount: number },
 ): string {
   // 参加取消（ページから行ごと消えた人）は出欠変更とは別の変化なので独立して出す。
-  // departedCount は任意引数にしてある（既存の呼び出しを壊さないため）が、
-  // scraper からは常に渡る。0 のときも表示して「減っていない」ことを明示する。
-  const departed = counts.departedCount ?? 0;
+  // 0 のときも表示して「減っていない」ことを明示する。
+  const departed = counts.departedCount;
   return `【${eventTitle}】参加者情報が更新されました（新規${counts.newCount}名・出欠変更${counts.statusChangedCount}名・参加取消${departed}名）`;
 }

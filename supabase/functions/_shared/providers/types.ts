@@ -2,6 +2,11 @@
 // EVENT-02: プラットフォームURL（Twipla/将来的にPeatix等）から参加者リストを取得するプロバイダーの契約
 // RESEARCH.md Pattern 1 のシグネチャに準拠
 
+/**
+ * **ページ上のセクションから読み取れる値**。パース結果にのみ使う。
+ * DB の participants.status はこれに 'left'（ページから消えた = 参加取消）を
+ * 加えた集合であり、'left' はパーサが返す値ではないのでここには含めない。
+ */
 export type ParticipantStatus = "attending" | "interested" | "declined" | "unknown";
 
 export interface ScrapedParticipant {
