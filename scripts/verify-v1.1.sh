@@ -243,6 +243,28 @@ else
   tail -20 /tmp/v11-build.log
 fi
 
+# 5-4 supabase/functions の型チェック
+#
+# なぜ独立したステップが要るか（PR #5 レビュー3 の指摘）:
+#   `deno test` は**テストのモジュールグラフしか型検査しない**。
+#   notifier.ts はどのテストからも import されていないため一度も型チェックされず、
+#   オブジェクトリテラルのキー重複（TS1117）が全12項目PASSをすり抜けた。
+#   値が同一だと実行時は無害（JSは後勝ち）で dev の実証も通り、
+#   `supabase functions deploy` は esbuild でトランスパイルするだけなのでデプロイも通る。
+#   = 「動くけどビルドが壊れている」状態を誰も検出できなかった。
+#   admin 側は `next build` が型検査を兼ねているが、functions 側にその役目が無かった。
+head1 "条件5-0: supabase/functions の型チェック"
+FUNC_TS_FILES="$(find supabase/functions -name '*.ts' | sort | tr '\n' ' ')"
+if [ -z "$FUNC_TS_FILES" ]; then
+  fail "条件5-0: supabase/functions に .ts が見つからない"
+elif deno check --config supabase/functions/deno.json $FUNC_TS_FILES > /tmp/v11-denocheck.log 2>&1; then
+  n_files="$(printf '%s' "$FUNC_TS_FILES" | wc -w | tr -d ' ')"
+  pass "条件5-0: deno check exit 0（${n_files} ファイル。テストから参照されないファイルも含む）"
+else
+  fail "条件5-0: deno check が失敗（型エラー）"
+  grep -E "^(TS[0-9]+|error)" /tmp/v11-denocheck.log | head -10
+fi
+
 # 5-4 supabase/functions の deno test（件数がベースラインから減っていないことも見る）
 if deno test --config supabase/functions/deno.json --allow-all supabase/functions/tests/ \
      > /tmp/v11-deno.log 2>&1; then

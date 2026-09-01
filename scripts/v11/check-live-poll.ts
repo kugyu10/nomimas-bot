@@ -190,13 +190,23 @@ try {
   attendingCount = attendingRows.length;
   console.log(`[check-live-poll]   attending行数=${attendingCount}`);
 
-  // ページに参加者が居るのに attending 行が無ければ異常。
-  // 一方、**実ページの参加者が全員参加取消した**場合は全行が 'left' になり、
-  // attending が0になるのが正しい状態になる（離脱検出を入れた帰結）。
-  // 無条件に不合格にすると、その時点からこの検査が恒久的に落ちる。
+  // attending 0件の**理由を切り分ける**ためのブロック。
+  //
   // レビュー2 の提案は `status in ('attending','left')` だったが、それでは
   // 「取得した参加者がちゃんと保存されたか」を測れなくなるので採らない。
-  // **応答の count と突き合わせる**のが正確: ページが0人なら attending 0件でよい。
+  // 応答の count と突き合わせて、原因が「保存経路の異常」なのか
+  // 「ページ自体に参加者が居ない」のかをログで区別する。
+  //
+  // 【誤解を招く記述を訂正（レビュー3の指摘）】
+  // 以前ここには「無条件に不合格にすると全員離脱時に恒久的に落ちるので、それを防ぐ」と
+  // 書いていたが**それは嘘だった**。実参加者が全員離脱すると応答の count が0になり、
+  // 上流（1回目の `count >= 1` チェック）が先に fail を積むので、run 全体は落ちる。
+  // このブロックはその不合格を回避しない。
+  //
+  // そしてそれは**落ちるのが正しい**。検証イベントの参加者が0人になったら
+  // 「実ページから取得して保存できるか」を検証する前提そのものが崩れているので、
+  // fixture（検証イベント）を作り直すべき状態である。
+  // 不合格の扱いは count 側のチェックに委ね、ここは原因の切り分けだけを担う。
   const pageCount = firstResult?.body.count ?? 0;
   if (attendingCount === 0 && pageCount > 0) {
     fail(
@@ -205,7 +215,9 @@ try {
     );
   } else if (attendingCount === 0) {
     console.log(
-      "[check-live-poll]   注: attending 0件だが応答の count も0（ページに参加者が居ない）ため異常としない",
+      "[check-live-poll]   注: attending 0件で応答の count も0 — ページに参加者が居ない。" +
+        "このブロックでは不合格にしないが、上流の count>=1 チェックが既に不合格を積んでいる" +
+        "（検証イベントの参加者が0人 = fixture を作り直すべき状態）",
     );
   } else {
     ok(`participants attending行数=${attendingCount}`);

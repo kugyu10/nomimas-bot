@@ -289,12 +289,13 @@ Deno.serve(async (req: Request) => {
 
         // 適用を見送った場合も、レスポンスで区別できるように changes を更新する
         // （通知は飛ばさない — 実際には何も変わっていないため）。
+        // 下の通知ブロックが走る場合はそちらが departuresSuspended も含めて上書きする。
         if (departuresSuspended > 0) {
           changes = {
-            new: 0,
-            statusChanged: 0,
-            departed: 0,
-            departedApplied: 0,
+            new: diff.newParticipants.length,
+            statusChanged: diff.statusChanges.length,
+            departed: diff.departedParticipants.length,
+            departedApplied,
             departuresSuspended,
           };
         }
@@ -312,7 +313,14 @@ Deno.serve(async (req: Request) => {
             // departed > departedApplied になり、その差が運用の手がかりになる。
             departed: diff.departedParticipants.length,
             departedApplied,
-            departuresSuspended: 0,
+            // リテラル 0 ではなく**変数**を使う。
+            // いまはこのブロックと suspended>0 のブロックが排他だが
+            // （suspended>0 ⇒ incoming が空 ⇒ new も statusChanged も departedApplied も0）、
+            // その排他性は shouldApplyDepartures が「incoming===0」しか見ていないことに
+            // 依存している。issue #6 で部分パース失敗の検知（比率しきい値・セクション欠落）を
+            // 足すと suspended>0 と new>0 が共存しうるようになり、リテラル 0 だと
+            // せっかくレスポンスに出した異常シグナルを**無言で消す**（PR #5 レビュー3 の指摘）。
+            departuresSuspended,
           };
 
           // イベント情報をネスト select から取得（型を安全に取り出す）
