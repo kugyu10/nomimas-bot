@@ -6,8 +6,9 @@
 #
 #   1. 実Twipla(741123)を fetch→parse→dev DB upsert でき、
 #      さらに2回連続ポーリングで差分ゼロ（誤検知で通知を撃たない）
-#   2. 保存済み実HTMLを加工した擬似ポーリングで3遷移が発火する
-#      （新規追加 / attending→declined / declined→attending）
+#   2. 保存済み実HTMLを加工した擬似ポーリングで遷移が発火する
+#      （新規追加 / attending→declined / declined→attending /
+#        離脱=ページから行ごと消える / 離脱からの復帰）
 #   3. dev で cron が実際に発火した記録がある（cron.job_run_details に1行以上）
 #   4. dev OA から本人宛ての実送信が sent:1 としてログに残っている
 #   5. 既存が壊れていない（admin vitest / eslint / next build / deno test すべて exit 0、
@@ -34,7 +35,11 @@ export NO_COLOR=1
 
 # ベースライン（2026-08-25 00:12 実測）。退行判定に使う。
 BASELINE_VITEST_TESTS=76
-BASELINE_DENO_PASSED=112
+# 退行検出のラチェット: **現在の実測値**に合わせる。
+# 夜間開始時の 112 に据え置くと、152→115 のような 37 件の消失を通してしまう
+# （比較は >= なので、余白がそのまま検出漏れになる）。
+# テストを増やしたらこの値も上げる。意図してテストを減らすときだけ下げる。
+BASELINE_DENO_PASSED=152
 
 FAILED=0
 declare -a RESULTS=()
@@ -76,10 +81,10 @@ if deno test --config supabase/functions/deno.json --allow-read \
   # 遷移3種と誤検知なしの4項目が実際に走ったことを、テスト名で確認する
   # （ファイルが空でも exit 0 になるため、件数ゼロを通してしまわないようにする）
   n_cases="$(grep -c '\.\.\. *ok' /tmp/v11-cond2.log || true)"
-  if [ "${n_cases:-0}" -ge 5 ]; then
-    pass "条件2: twipla_polling_test.ts が ${n_cases} 件 ok（新規/attending→declined/declined→attending/誤検知なし/capacity）"
+  if [ "${n_cases:-0}" -ge 7 ]; then
+    pass "条件2: twipla_polling_test.ts が ${n_cases} 件 ok（新規/attending→declined/declined→attending/離脱/離脱からの復帰/誤検知なし/capacity）"
   else
-    fail "条件2: テストは exit 0 だが ok が ${n_cases} 件しかない（5件以上必要）"
+    fail "条件2: テストは exit 0 だが ok が ${n_cases} 件しかない（7件以上必要）"
     tail -20 /tmp/v11-cond2.log
   fi
 else
@@ -236,6 +241,28 @@ if (cd admin && npm run build > /tmp/v11-build.log 2>&1); then
 else
   fail "条件5-3: admin next build が失敗"
   tail -20 /tmp/v11-build.log
+fi
+
+# 5-4 supabase/functions の型チェック
+#
+# なぜ独立したステップが要るか（PR #5 レビュー3 の指摘）:
+#   `deno test` は**テストのモジュールグラフしか型検査しない**。
+#   notifier.ts はどのテストからも import されていないため一度も型チェックされず、
+#   オブジェクトリテラルのキー重複（TS1117）が全12項目PASSをすり抜けた。
+#   値が同一だと実行時は無害（JSは後勝ち）で dev の実証も通り、
+#   `supabase functions deploy` は esbuild でトランスパイルするだけなのでデプロイも通る。
+#   = 「動くけどビルドが壊れている」状態を誰も検出できなかった。
+#   admin 側は `next build` が型検査を兼ねているが、functions 側にその役目が無かった。
+head1 "条件5-0: supabase/functions の型チェック"
+FUNC_TS_FILES="$(find supabase/functions -name '*.ts' | sort | tr '\n' ' ')"
+if [ -z "$FUNC_TS_FILES" ]; then
+  fail "条件5-0: supabase/functions に .ts が見つからない"
+elif deno check --config supabase/functions/deno.json $FUNC_TS_FILES > /tmp/v11-denocheck.log 2>&1; then
+  n_files="$(printf '%s' "$FUNC_TS_FILES" | wc -w | tr -d ' ')"
+  pass "条件5-0: deno check exit 0（${n_files} ファイル。テストから参照されないファイルも含む）"
+else
+  fail "条件5-0: deno check が失敗（型エラー）"
+  grep -E "^(TS[0-9]+|error)" /tmp/v11-denocheck.log | head -10
 fi
 
 # 5-4 supabase/functions の deno test（件数がベースラインから減っていないことも見る）

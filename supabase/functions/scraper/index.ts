@@ -5,7 +5,7 @@
 import { z } from "zod";
 import { resolveProvider } from "../_shared/providers/registry.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
-import { diffParticipants } from "../_shared/notify/diff.ts";
+import { diffParticipants, shouldApplyDepartures } from "../_shared/notify/diff.ts";
 import { notifyScrapeChanges } from "../_shared/notify/notifier.ts";
 
 // zod 4 では z.url() で URL バリデーション（z.string().url() は旧 zod 3 の書き方）
@@ -100,7 +100,29 @@ Deno.serve(async (req: Request) => {
   }
 
   // 通知結果（レスポンスに含める）
-  let changes: { new: number; statusChanged: number } = { new: 0, statusChanged: 0 };
+  let changes: {
+    new: number;
+    statusChanged: number;
+    departed: number;
+    /** 実際に 'left' に更新できた件数（departed は検出件数） */
+    departedApplied: number;
+    /**
+     * 取得異常の疑いで離脱の適用を見送った件数。
+     *
+     * これをレスポンスに出さないと、`shouldApplyDepartures` が false を返した経路が
+     * **正常系の「変化なし」と完全に同一のレスポンス**になる（incoming が空なので
+     * new も statusChanged も0、departed も0のまま）。痕跡が console.error だけになり、
+     * cron 駆動で誰もログを見ていなければ「スクレイプが壊れて既存全員が消えて見えている」
+     * 状態が無言で続く（PR #5 レビュー2 の指摘）。
+     */
+    departuresSuspended: number;
+  } = {
+    new: 0,
+    statusChanged: 0,
+    departed: 0,
+    departedApplied: 0,
+    departuresSuspended: 0,
+  };
   let notified = 0;
 
   if (epu) {
@@ -126,26 +148,31 @@ Deno.serve(async (req: Request) => {
     }
     const rows = [...byKey.values()];
 
-    // 判断メモ: 「セクションはあるが参加者0人」(sectionCount > 0 && rows.length === 0) の場合に
-    // upsert・通知を止めるべきか検討した結果、追加のガードは入れていない。理由:
-    //   - diffParticipants は incoming をループするだけで「消えた人」を検出しないため、
-    //     rows が空なら newParticipants/statusChanges は必ず空になり、この経路で
-    //     誤通知が飛ぶことはそもそも無い（下の existingRows.length===0 分岐と合わせ
-    //     通知は最大でも「変化なし」で完全にスキップされる）。
-    //   - upsert(rows=[]) は PostgREST 上は0行の no-op で、既存行を書き換えたり消したりしない
-    //     （既存参加者の行は残ったまま、scraped_at だけ更新されない）。これは
-    //     「本当に参加者が0人になった」場合でも「本当に取得失敗だがsectionは残っていた」場合でも
-    //     安全側（何もしない）に倒れるため、sectionCount>0 の時点でこれ以上区別する必要がない。
-    //   - sectionCount===0（セクション自体が無い＝取得失敗）は既に上で早期returnしているため、
-    //     ここに到達する時点で「セクションはHTML上存在した」ことは保証されている。
+    // 判断メモ（2026-08-31 更新）: 「セクションはあるが参加者0人」
+    // (sectionCount > 0 && rows.length === 0) のとき upsert・通知を止めるかどうか。
+    //
+    // **以前の根拠は無効になった。** かつては「diffParticipants は incoming をループするだけで
+    // 消えた人を検出しないので、この経路で誤通知は構造的に起きない」と書いていたが、
+    // issue #2 で離脱検出を入れたため前提が崩れている。
+    //
+    // いまこの経路を守っているのは以下の2つだけである:
+    //   1. sectionCount === 0 は上で早期return（取得失敗として扱う）
+    //   2. shouldApplyDepartures が「既存が居るのに今回0件」なら離脱を適用しない
+    // **この2つを緩めると、一括 left のバグが復活する。**
+    // なお upsert(rows=[]) 自体は PostgREST 上0行の no-op で、既存行を書き換えも削除もしない。
     console.log(`[scraper] rows.length=${rows.length} sectionCount=${result.sectionCount}`);
 
     // (4a) upsert 前に既存行を select — select-before-upsert 差分計算（Pattern 2）
     // existErr 時は差分検出を諦め通知スキップ（upsert 自体は続行 — 取得保存優先）
     // IN-01: display_name は diffParticipants で未使用のため select しない
+    // id: 離脱を UPDATE するとき natural_key ではなく id（UUID）で絞るために取る
+    //     （natural_key は 'dn:'+表示名 にフォールバックし、表示名は Twipla 側の任意テキスト。
+    //      引用符やカンマを含む値を .in() に渡すと PostgREST 側で値が分割され、
+    //      無関係な参加者を left にし本来の対象を取り逃がす — PR #5 レビュー指摘）
+    // scraped_at: スクレイプで観測したことがある行かの判別（離脱判定の対象を限定する）
     const { data: existingRows, error: existErr } = await supabase
       .from("participants")
-      .select("natural_key, status")
+      .select("id, natural_key, status, scraped_at")
       .eq("event_platform_url_id", epu.id);
 
     if (existErr) {
@@ -200,10 +227,100 @@ Deno.serve(async (req: Request) => {
         }));
         const diff = diffParticipants(existingRows, incoming);
 
-        if (diff.newParticipants.length > 0 || diff.statusChanges.length > 0) {
+        // (4b-1) 離脱者（ページから行ごと消えた参加者）を 'left' として記録する。
+        //
+        // Twipla では参加を取り消すと行が消えるため、セクション間の移動とは別の変化になる。
+        // 記録しないと DB の行が attending のまま残り、get_confirm_targets が
+        // もう来ない人を配信対象に含め続ける（issue #2）。
+        // status を 'left' にすれば get_confirm_targets（status='attending' で絞る）から
+        // 自動的に外れるので、関数側の変更は要らない。
+        let departedApplied = 0;
+        let departuresSuspended = 0;
+        if (diff.departedParticipants.length > 0) {
+          if (!shouldApplyDepartures(incoming.length, existingRows.length)) {
+            // 既存が居るのに今回0件 = 取得異常の疑い。全員を配信対象から外す事故を防ぐため適用しない。
+            // 件数をレスポンスにも出す（この経路が正常系と区別できないと運用で気づけない）。
+            departuresSuspended = diff.departedParticipants.length;
+            console.error(
+              `[scraper] SUSPICIOUS: 既存 ${existingRows.length} 件に対し取得0件のため、` +
+                `離脱 ${diff.departedParticipants.length} 件の記録を見送った（取得異常の疑い）`,
+            );
+          } else {
+            // 離脱の UPDATE は **id（UUID）** で絞る。
+            // natural_key は 'dn:'+表示名 にフォールバックし、表示名は Twipla の任意テキストなので、
+            // 引用符やカンマを含む値を .in() に渡すと PostgREST 側で値が分割され、
+            // 無関係な参加者を left にして本来の対象を取り逃がす（PR #5 レビュー指摘）。
+            // UUID なら固定長・記号なしなので、その問題も URL 長の暴れも起きない。
+            const idByKey = new Map(
+              (existingRows as { id: string; natural_key: string }[]).map((r) => [
+                r.natural_key,
+                r.id,
+              ]),
+            );
+            const departedIds = diff.departedParticipants
+              .map((d) => idByKey.get(d.naturalKey))
+              .filter((v): v is string => typeof v === "string");
+
+            // URL 長の上限に当たらないよう分割して投げる（件数が多いときの黙った失敗を防ぐ）
+            const CHUNK = 50;
+            let applied = 0;
+            let updateFailed = false;
+            for (let i = 0; i < departedIds.length; i += CHUNK) {
+              const chunk = departedIds.slice(i, i + CHUNK);
+              const { error: leftError, count: leftCount } = await supabase
+                .from("participants")
+                .update({ status: "left" }, { count: "exact" })
+                .in("id", chunk);
+              if (leftError) {
+                // 記録失敗は保存経路を壊さない（次回のポーリングで再度検出される）
+                console.error(`[scraper] departed update error: ${leftError.message}`);
+                updateFailed = true;
+                break;
+              }
+              applied += leftCount ?? chunk.length;
+            }
+            departedApplied = applied;
+            console.log(
+              `[scraper] marked ${departedApplied}/${departedIds.length} participant(s) as left` +
+                (updateFailed ? " (一部失敗)" : ""),
+            );
+          }
+        }
+
+        // 適用を見送った場合も、レスポンスで区別できるように changes を更新する
+        // （通知は飛ばさない — 実際には何も変わっていないため）。
+        // 下の通知ブロックが走る場合はそちらが departuresSuspended も含めて上書きする。
+        if (departuresSuspended > 0) {
           changes = {
             new: diff.newParticipants.length,
             statusChanged: diff.statusChanges.length,
+            departed: diff.departedParticipants.length,
+            departedApplied,
+            departuresSuspended,
+          };
+        }
+
+        if (
+          diff.newParticipants.length > 0 || diff.statusChanges.length > 0 ||
+          departedApplied > 0
+        ) {
+          changes = {
+            new: diff.newParticipants.length,
+            statusChanged: diff.statusChanges.length,
+            // 検出件数と実適用件数の**両方**を出す。
+            // 「検出と適用を分ける」のがこの設計の芯なので、報告側でも混ぜない
+            // （PR #5 レビュー2 の指摘）。UPDATE が途中で失敗すると
+            // departed > departedApplied になり、その差が運用の手がかりになる。
+            departed: diff.departedParticipants.length,
+            departedApplied,
+            // リテラル 0 ではなく**変数**を使う。
+            // いまはこのブロックと suspended>0 のブロックが排他だが
+            // （suspended>0 ⇒ incoming が空 ⇒ new も statusChanged も departedApplied も0）、
+            // その排他性は shouldApplyDepartures が「incoming===0」しか見ていないことに
+            // 依存している。issue #6 で部分パース失敗の検知（比率しきい値・セクション欠落）を
+            // 足すと suspended>0 と new>0 が共存しうるようになり、リテラル 0 だと
+            // せっかくレスポンスに出した異常シグナルを**無言で消す**（PR #5 レビュー3 の指摘）。
+            departuresSuspended,
           };
 
           // イベント情報をネスト select から取得（型を安全に取り出す）
@@ -220,6 +337,8 @@ Deno.serve(async (req: Request) => {
                 eventDate: eventsData.event_date,
                 newParticipants: diff.newParticipants,
                 statusChanges: diff.statusChanges,
+                departedParticipants: diff.departedParticipants,
+                departedAppliedCount: departedApplied,
               });
               notified = r.sent;
               console.log(

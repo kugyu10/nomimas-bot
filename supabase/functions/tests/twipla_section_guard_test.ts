@@ -13,7 +13,7 @@
 
 import { assertEquals } from "jsr:@std/assert";
 import type { ExistingRow } from "../_shared/notify/diff.ts";
-import { diffParticipants } from "../_shared/notify/diff.ts";
+import { diffParticipants, shouldApplyDepartures } from "../_shared/notify/diff.ts";
 import { parseTwiplaHtml } from "../_shared/providers/twipla.ts";
 
 const FIXTURE_BROKEN = new URL("./fixtures/twipla_broken_no_sections.html", import.meta.url);
@@ -66,21 +66,34 @@ Deno.test("parseTwiplaHtml: 既存の正常フィクスチャ（twipla_poll_t0.h
   assertEquals(result.sectionCount, 3, "参加者・興味あり・不参加の3セクション");
 });
 
-// 現状の仕様を明文化: diffParticipants は「消えた人」を検出しない。
-// 既存2件・incoming 0件（= 取得結果が空、または取得失敗でも呼んでしまった場合）を渡しても
-// newParticipants・statusChanges はどちらも空になる。つまりこの経路からは
-// 「全員が離脱した」という誤通知は構造的に発生しない（詳細は index.ts のコメント参照）。
-// これは「安全」というより「何もしないだけ」であり、sectionCount===0 を早期returnで
-// ガードする必要性はこのテストの結果とは独立している（早期returnはupsert自体を防ぐため）。
-Deno.test("diffParticipants: 既存2件・incoming 0件 → newParticipants/statusChanges とも空（消えた人は検出されない仕様）", () => {
+// 【2026-08-31 更新】以前ここは「diffParticipants は消えた人を検出しない」という
+// 当時の仕様を明文化していた。issue #2 でその穴を塞いだので、テストの意味も変わっている。
+//
+// いまは:
+//   - 消えた人は departedParticipants として**検出される**
+//   - ただし「既存が居るのに取得0件」は取得異常の疑いとして
+//     shouldApplyDepartures が false を返し、**記録には適用されない**
+// 検出と適用を分けているのがこの設計の要点なので、両方をここで固定する。
+Deno.test("diffParticipants: 既存2件・incoming 0件 → 離脱は検出されるが適用はされない", () => {
   const existing: ExistingRow[] = [
-    { natural_key: "alice", status: "attending" },
-    { natural_key: "bob", status: "interested" },
+    { natural_key: "alice", status: "attending", scraped_at: "2026-08-31T00:00:00Z" },
+    { natural_key: "bob", status: "interested", scraped_at: "2026-08-31T00:00:00Z" },
   ];
   const incoming: { naturalKey: string; displayName: string; status: string }[] = [];
 
   const result = diffParticipants(existing, incoming);
 
   assertEquals(result.newParticipants, [], "新規参加者は検出されない（0件）");
-  assertEquals(result.statusChanges, [], "ステータス変化も検出されない（消えた人はstatusChangesに現れない）");
+  assertEquals(result.statusChanges, [], "離脱を statusChanges に混ぜない");
+  assertEquals(
+    result.departedParticipants.length,
+    2,
+    "消えた2名は departedParticipants として検出される",
+  );
+  assertEquals(
+    shouldApplyDepartures(incoming.length, existing.length),
+    false,
+    "しかし取得0件は異常の疑いなので、この検出結果を DB に適用してはいけない" +
+      "（全員を確認配信の対象から外す事故になる）",
+  );
 });

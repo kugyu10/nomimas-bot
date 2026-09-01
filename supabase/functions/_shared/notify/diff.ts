@@ -13,6 +13,19 @@
 export interface ExistingRow {
   natural_key: string;
   status: string;
+  /**
+   * この行を**スクレイプで観測したことがあるか**の判別に使う。
+   *
+   * scraper の upsert は必ず scraped_at を入れるので、
+   * NULL の行は「ページで一度も見ていない行」= seed やシード相当の手動投入である。
+   * そういう行は「離脱した」とは言えない（ページに居た証拠が無い）ので離脱判定から外す。
+   *
+   * これが無いと、実在URLに紐づく seed 参加者
+   * （`dn:devテスト参加者` / seed.sql の EPU ...0003 → 実在の 731057）が
+   * 最初のスクレイプで 'left' に落ち、status='attending' で絞る get_confirm_targets から
+   * 恒久的に外れて E2E テストが永続的に壊れる（PR #5 レビュー HIGH 指摘）。
+   */
+  scraped_at?: string | Date | null;
 }
 
 /** 差分計算結果 */
@@ -21,6 +34,20 @@ export interface DiffResult {
   newParticipants: { displayName: string; status: string }[];
   /** status が変化した参加者（from/to 保持） */
   statusChanges: { displayName: string; from: string; to: string }[];
+  /**
+   * 既存にあったが今回のスクレイプに現れなかった参加者（= ページから消えた）。
+   *
+   * Twipla では「参加を取り消す」と行そのものが消え、セクション間の移動
+   * （attending→declined 等）とは別の変化になる。以前はここを見ていなかったため:
+   *   - 主催者に「減った」ことが通知されない
+   *   - DB の行は attending のまま残り、get_confirm_targets が
+   *     もう来ない人を配信対象に含めてしまう
+   * という穴があった（issue #2）。
+   *
+   * displayName は持たない。既存行のスナップショット(ExistingRow)は
+   * natural_key と status しか持たないため。通知は件数のみ使うので不要。
+   */
+  departedParticipants: { naturalKey: string; status: string }[];
 }
 
 /**
@@ -34,8 +61,14 @@ export function diffParticipants(
   incoming: { naturalKey: string; displayName: string; status: string }[],
 ): DiffResult {
   const before = new Map(existing.map((r) => [r.natural_key, r]));
-  const result: DiffResult = { newParticipants: [], statusChanges: [] };
+  const result: DiffResult = {
+    newParticipants: [],
+    statusChanges: [],
+    departedParticipants: [],
+  };
+  const seen = new Set<string>();
   for (const p of incoming) {
+    seen.add(p.naturalKey);
     const prev = before.get(p.naturalKey);
     if (!prev) {
       result.newParticipants.push({ displayName: p.displayName, status: p.status });
@@ -43,5 +76,38 @@ export function diffParticipants(
       result.statusChanges.push({ displayName: p.displayName, from: prev.status, to: p.status });
     }
   }
+  // 既存にあって今回現れなかったもの = 離脱。ただし2つ除外する:
+  //   - 既に 'left' の行: 「今回も居ない」だけなので再検出しない
+  //     （毎回のポーリングで同じ人を離脱として通知し続けないため）
+  //   - scraped_at が無い行: スクレイプで一度も観測していない = ページに居た証拠が無い
+  //     （seed / 手動投入。離脱と断定できないので触らない）
+  for (const r of existing) {
+    if (seen.has(r.natural_key)) continue;
+    if (r.status === "left") continue;
+    if (!r.scraped_at) continue;
+    result.departedParticipants.push({ naturalKey: r.natural_key, status: r.status });
+  }
   return result;
+}
+
+/**
+ * 離脱の記録を適用してよいかを判定する純関数。
+ *
+ * なぜ要るか: パースが構造的には成功しても（セクションは在る）中身が取れなかった場合、
+ * 「全員が離脱した」と誤って記録しうる。それは全員を confirm 対象から外すため、
+ * 「誰にも確認配信が届かない」という最悪の失敗につながる。
+ *
+ * 判定: **既存が居るのに今回0件だったときは適用しない。**
+ * イベントが本当に全員取り消しになることは有り得るが、その頻度よりも
+ * スクレイプ異常の頻度の方が高く、誤って全員を外す損害の方が大きいと判断した。
+ * （0件でない場合は件数をログ・通知に出して運用で気づけるようにする。
+ *   割合しきい値は入れていない — 正当な離脱を黙って無視する新しい穴になるため。）
+ */
+export function shouldApplyDepartures(
+  incomingCount: number,
+  existingCount: number,
+): boolean {
+  if (existingCount === 0) return false; // 初回スクレイプ: 離脱は起こりえない
+  if (incomingCount === 0) return false; // 全員消えた = 取得異常の疑い
+  return true;
 }

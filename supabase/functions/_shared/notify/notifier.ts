@@ -241,6 +241,18 @@ export async function notifyScrapeChanges(
     eventDate: string | null;
     newParticipants: { displayName: string; status: string }[];
     statusChanges: { displayName: string; from: string; to: string }[];
+    /** ページから消えた参加者（= 参加取消）を**検出**した分。件数のみ使う */
+    departedParticipants?: { naturalKey: string; status: string }[];
+    /**
+     * そのうち実際に 'left' へ更新できた件数。
+     * LINE 本文にはこちらを使う（DB に反映された事実と本文を一致させるため）。
+     * 検出件数との差は notification_logs.detail に残して運用の手がかりにする。
+     *
+     * **必須**にしてある。オプショナルだと渡し忘れが黙って検出件数にフォールバックし、
+     * 「検出と適用を混ぜない」という設計意図が型で守られない（PR #5 レビュー3 の指摘）。
+     * 呼び出し元は scraper/index.ts の1箇所だけなので必須化のコストは小さい。
+     */
+    departedAppliedCount: number;
   },
 ): Promise<NotifyResult> {
   const baseResult: NotifyResult = {
@@ -301,6 +313,8 @@ export async function notifyScrapeChanges(
           recipients_error: true,
           new: params.newParticipants.length,
           statusChanged: params.statusChanges.length,
+          departed: params.departedParticipants?.length ?? 0,
+          departed_applied: params.departedAppliedCount,
         },
       });
     if (logError) {
@@ -332,6 +346,9 @@ export async function notifyScrapeChanges(
       const text = buildScrapeChangesNotification(params.eventTitle, {
         newCount: params.newParticipants.length,
         statusChangedCount: params.statusChanges.length,
+        // 本文は「実際に反映された件数」。UPDATE が失敗しているのに
+        // 「参加取消3名」と言い切ると、管理画面ではまだ attending のままなので食い違う。
+        departedCount: params.departedAppliedCount,
       });
       const messages = [{ type: "text", text }];
 
@@ -365,6 +382,8 @@ export async function notifyScrapeChanges(
       detail: {
         new: params.newParticipants.length,
         statusChanged: params.statusChanges.length,
+        departed: params.departedParticipants?.length ?? 0,
+        departed_applied: params.departedAppliedCount,
       },
     });
 

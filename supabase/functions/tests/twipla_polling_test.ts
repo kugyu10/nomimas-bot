@@ -22,13 +22,14 @@ import { assertEquals } from "jsr:@std/assert";
 import type { ScrapedParticipant } from "../_shared/providers/types.ts";
 import type { ExistingRow } from "../_shared/notify/diff.ts";
 import { parseTwiplaHtml } from "../_shared/providers/twipla.ts";
-import { diffParticipants } from "../_shared/notify/diff.ts";
+import { diffParticipants, shouldApplyDepartures } from "../_shared/notify/diff.ts";
 
 // フィクスチャHTMLの読み込み
 const FIXTURE_T0 = new URL("./fixtures/twipla_poll_t0.html", import.meta.url);
 const FIXTURE_T1 = new URL("./fixtures/twipla_poll_t1.html", import.meta.url);
 const FIXTURE_T2 = new URL("./fixtures/twipla_poll_t2.html", import.meta.url);
 const FIXTURE_T3 = new URL("./fixtures/twipla_poll_t3.html", import.meta.url);
+const FIXTURE_T5 = new URL("./fixtures/twipla_poll_t5_departed.html", import.meta.url);
 
 /**
  * parseTwiplaHtml の出力を diffParticipants の入力形式に変換するヘルパー
@@ -53,6 +54,10 @@ function toExistingRows(
   return participants.map((p) => ({
     natural_key: p.screenName ?? `dn:${p.displayName}`,
     status: p.status,
+    // scraper の upsert は必ず scraped_at を入れる。この写像は「前回のスクレイプで
+    // 観測した行」を模すので、観測済みであることを表す値を入れる。
+    // （scraped_at が無い行は離脱扱いされない — seed 相当の行を守るため）
+    scraped_at: "2026-08-31T00:00:00Z",
   }));
 }
 
@@ -126,4 +131,49 @@ Deno.test("twipla_polling: t0 の capacity が 15 として取れる", () => {
   const resultT0 = parseTwiplaHtml(htmlT0, "https://twipla.jp/events/test");
 
   assertEquals(resultT0.capacity, 15, "capacity が15として取れること");
+});
+
+// --- 離脱（ページから行ごと消える） — issue #2 ---
+//
+// t1 は参加者 alice, bob。t5 は bob だけ（alice が参加を取り消してページから消えた状態）。
+// セクション間の移動（attending→declined）ではなく行そのものが無くなる変化を再現している。
+
+Deno.test("twipla_polling: t1→t5（alice がページから消える） → departedParticipants に分類", () => {
+  const resultT1 = parseTwiplaHtml(Deno.readTextFileSync(FIXTURE_T1), "https://twipla.jp/events/test");
+  const resultT5 = parseTwiplaHtml(Deno.readTextFileSync(FIXTURE_T5), "https://twipla.jp/events/test");
+
+  const existing = toExistingRows(resultT1.participants);
+  const incoming = toIncomingFormat(resultT5.participants);
+  const diff = diffParticipants(existing, incoming);
+
+  assertEquals(diff.newParticipants.length, 0, "新規はない");
+  assertEquals(diff.statusChanges.length, 0, "離脱を statusChanges に混ぜてはいけない");
+  assertEquals(diff.departedParticipants.length, 1, "離脱が1件");
+  assertEquals(diff.departedParticipants[0].naturalKey, "alice", "離脱者は alice");
+  assertEquals(diff.departedParticipants[0].status, "attending", "離脱前は attending だった");
+  assertEquals(
+    shouldApplyDepartures(incoming.length, existing.length),
+    true,
+    "取得が1件以上あるので、この離脱は記録に適用してよい",
+  );
+});
+
+Deno.test("twipla_polling: t5→t1（alice が戻ってくる） → left からの復帰として扱える", () => {
+  const resultT5 = parseTwiplaHtml(Deno.readTextFileSync(FIXTURE_T5), "https://twipla.jp/events/test");
+  const resultT1 = parseTwiplaHtml(Deno.readTextFileSync(FIXTURE_T1), "https://twipla.jp/events/test");
+
+  // 離脱を適用した後のDB状態を模す（alice は 'left' として残っている）
+  const existing = [
+    ...toExistingRows(resultT5.participants),
+    { natural_key: "alice", status: "left", scraped_at: "2026-08-31T00:00:00Z" },
+  ];
+  const incoming = toIncomingFormat(resultT1.participants);
+  const diff = diffParticipants(existing, incoming);
+
+  assertEquals(diff.newParticipants.length, 0, "再登場は新規ではない");
+  assertEquals(diff.departedParticipants.length, 0, "誰も離脱していない");
+  assertEquals(diff.statusChanges.length, 1, "left→attending の変化が1件");
+  assertEquals(diff.statusChanges[0].displayName, "alice");
+  assertEquals(diff.statusChanges[0].from, "left");
+  assertEquals(diff.statusChanges[0].to, "attending");
 });
