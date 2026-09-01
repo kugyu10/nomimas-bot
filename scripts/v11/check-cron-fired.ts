@@ -203,7 +203,11 @@ try {
           where jobid = ${jobId}
             and status = 'succeeded'
             and return_message is not null
-            and return_message ~ '^[1-9][0-9]* row'
+            -- parseRowCount と**同じ**述語にする（両端アンカー + 前後空白を許容）。
+            -- 以前はここだけ末尾アンカーが無く trim もしていなかったため、
+            -- ' 1 row'（先頭空白）や '12 rows (extra)' で窓内スキャンと判定が食い違った。
+            and btrim(return_message) ~ '^[0-9]+[[:space:]]+rows?$'
+            and btrim(return_message) !~ '^0+[[:space:]]'
           order by start_time desc
           limit 1
         `;

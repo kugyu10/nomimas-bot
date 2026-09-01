@@ -54,6 +54,10 @@ function toExistingRows(
   return participants.map((p) => ({
     natural_key: p.screenName ?? `dn:${p.displayName}`,
     status: p.status,
+    // scraper の upsert は必ず scraped_at を入れる。この写像は「前回のスクレイプで
+    // 観測した行」を模すので、観測済みであることを表す値を入れる。
+    // （scraped_at が無い行は離脱扱いされない — seed 相当の行を守るため）
+    scraped_at: "2026-08-31T00:00:00Z",
   }));
 }
 
@@ -161,7 +165,7 @@ Deno.test("twipla_polling: t5→t1（alice が戻ってくる） → left から
   // 離脱を適用した後のDB状態を模す（alice は 'left' として残っている）
   const existing = [
     ...toExistingRows(resultT5.participants),
-    { natural_key: "alice", status: "left" },
+    { natural_key: "alice", status: "left", scraped_at: "2026-08-31T00:00:00Z" },
   ];
   const incoming = toIncomingFormat(resultT1.participants);
   const diff = diffParticipants(existing, incoming);

@@ -86,8 +86,8 @@ Deno.test("diffParticipants: 既存キーと新キーの混在（バッチ内混
 Deno.test("diffParticipants: 既存にあって今回現れない参加者を departedParticipants に入れる", () => {
   const diff = diffParticipants(
     [
-      { natural_key: "alice", status: "attending" },
-      { natural_key: "bob", status: "attending" },
+      { natural_key: "alice", status: "attending", scraped_at: "2026-08-31T00:00:00Z" },
+      { natural_key: "bob", status: "attending", scraped_at: "2026-08-31T00:00:00Z" },
     ],
     [{ naturalKey: "bob", displayName: "bob", status: "attending" }],
   );
@@ -123,7 +123,7 @@ Deno.test("diffParticipants: 離脱者が戻ってきたら statusChange(left→
 
 Deno.test("diffParticipants: 取得0件でも departedParticipants は計算される（適用の判断は別関数）", () => {
   const diff = diffParticipants(
-    [{ natural_key: "alice", status: "attending" }],
+    [{ natural_key: "alice", status: "attending", scraped_at: "2026-08-31T00:00:00Z" }],
     [],
   );
   assertEquals(diff.departedParticipants.length, 1, "検出自体はする");
@@ -142,4 +142,29 @@ Deno.test("shouldApplyDepartures: 初回スクレイプ（既存0件）は適用
 Deno.test("shouldApplyDepartures: 取得が1件以上あれば適用する（割合しきい値は設けない）", () => {
   assertEquals(shouldApplyDepartures(1, 10), true, "9名減っても正当な離脱の可能性があるので適用する");
   assertEquals(shouldApplyDepartures(5, 5), true);
+});
+
+Deno.test("diffParticipants: scraped_at が無い行は離脱扱いしない（seed / 手動投入を守る）", () => {
+  // scraper の upsert は必ず scraped_at を入れるので、NULL の行は
+  // 「ページで一度も観測していない行」= seed 相当。ページに居た証拠が無いので
+  // 「離脱した」とは言えない。
+  // これを守らないと、実在URLに紐づく seed 参加者が最初のスクレイプで 'left' に落ち、
+  // get_confirm_targets から恒久的に外れて E2E が永続的に壊れる（PR #5 レビュー HIGH）。
+  const diff = diffParticipants(
+    [
+      { natural_key: "dn:devテスト参加者", status: "attending" },
+      { natural_key: "alice", status: "attending", scraped_at: "2026-08-31T00:00:00Z" },
+    ],
+    [],
+  );
+  assertEquals(diff.departedParticipants.length, 1, "観測済みの alice だけが離脱候補");
+  assertEquals(diff.departedParticipants[0].naturalKey, "alice");
+});
+
+Deno.test("diffParticipants: scraped_at が null 明示でも離脱扱いしない", () => {
+  const diff = diffParticipants(
+    [{ natural_key: "seeded", status: "attending", scraped_at: null }],
+    [],
+  );
+  assertEquals(diff.departedParticipants.length, 0);
 });

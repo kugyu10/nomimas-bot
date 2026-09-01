@@ -130,26 +130,31 @@ Deno.serve(async (req: Request) => {
     }
     const rows = [...byKey.values()];
 
-    // 判断メモ: 「セクションはあるが参加者0人」(sectionCount > 0 && rows.length === 0) の場合に
-    // upsert・通知を止めるべきか検討した結果、追加のガードは入れていない。理由:
-    //   - diffParticipants は incoming をループするだけで「消えた人」を検出しないため、
-    //     rows が空なら newParticipants/statusChanges は必ず空になり、この経路で
-    //     誤通知が飛ぶことはそもそも無い（下の existingRows.length===0 分岐と合わせ
-    //     通知は最大でも「変化なし」で完全にスキップされる）。
-    //   - upsert(rows=[]) は PostgREST 上は0行の no-op で、既存行を書き換えたり消したりしない
-    //     （既存参加者の行は残ったまま、scraped_at だけ更新されない）。これは
-    //     「本当に参加者が0人になった」場合でも「本当に取得失敗だがsectionは残っていた」場合でも
-    //     安全側（何もしない）に倒れるため、sectionCount>0 の時点でこれ以上区別する必要がない。
-    //   - sectionCount===0（セクション自体が無い＝取得失敗）は既に上で早期returnしているため、
-    //     ここに到達する時点で「セクションはHTML上存在した」ことは保証されている。
+    // 判断メモ（2026-08-31 更新）: 「セクションはあるが参加者0人」
+    // (sectionCount > 0 && rows.length === 0) のとき upsert・通知を止めるかどうか。
+    //
+    // **以前の根拠は無効になった。** かつては「diffParticipants は incoming をループするだけで
+    // 消えた人を検出しないので、この経路で誤通知は構造的に起きない」と書いていたが、
+    // issue #2 で離脱検出を入れたため前提が崩れている。
+    //
+    // いまこの経路を守っているのは以下の2つだけである:
+    //   1. sectionCount === 0 は上で早期return（取得失敗として扱う）
+    //   2. shouldApplyDepartures が「既存が居るのに今回0件」なら離脱を適用しない
+    // **この2つを緩めると、一括 left のバグが復活する。**
+    // なお upsert(rows=[]) 自体は PostgREST 上0行の no-op で、既存行を書き換えも削除もしない。
     console.log(`[scraper] rows.length=${rows.length} sectionCount=${result.sectionCount}`);
 
     // (4a) upsert 前に既存行を select — select-before-upsert 差分計算（Pattern 2）
     // existErr 時は差分検出を諦め通知スキップ（upsert 自体は続行 — 取得保存優先）
     // IN-01: display_name は diffParticipants で未使用のため select しない
+    // id: 離脱を UPDATE するとき natural_key ではなく id（UUID）で絞るために取る
+    //     （natural_key は 'dn:'+表示名 にフォールバックし、表示名は Twipla 側の任意テキスト。
+    //      引用符やカンマを含む値を .in() に渡すと PostgREST 側で値が分割され、
+    //      無関係な参加者を left にし本来の対象を取り逃がす — PR #5 レビュー指摘）
+    // scraped_at: スクレイプで観測したことがある行かの判別（離脱判定の対象を限定する）
     const { data: existingRows, error: existErr } = await supabase
       .from("participants")
-      .select("natural_key, status")
+      .select("id, natural_key, status, scraped_at")
       .eq("event_platform_url_id", epu.id);
 
     if (existErr) {
@@ -220,19 +225,44 @@ Deno.serve(async (req: Request) => {
                 `離脱 ${diff.departedParticipants.length} 件の記録を見送った（取得異常の疑い）`,
             );
           } else {
-            const departedKeys = diff.departedParticipants.map((d) => d.naturalKey);
-            const { error: leftError, count: leftCount } = await supabase
-              .from("participants")
-              .update({ status: "left" }, { count: "exact" })
-              .eq("event_platform_url_id", epu.id)
-              .in("natural_key", departedKeys);
-            if (leftError) {
-              // 記録失敗は保存経路を壊さない（次回のポーリングで再度検出される）
-              console.error(`[scraper] departed update error: ${leftError.message}`);
-            } else {
-              departedApplied = leftCount ?? departedKeys.length;
-              console.log(`[scraper] marked ${departedApplied} participant(s) as left`);
+            // 離脱の UPDATE は **id（UUID）** で絞る。
+            // natural_key は 'dn:'+表示名 にフォールバックし、表示名は Twipla の任意テキストなので、
+            // 引用符やカンマを含む値を .in() に渡すと PostgREST 側で値が分割され、
+            // 無関係な参加者を left にして本来の対象を取り逃がす（PR #5 レビュー指摘）。
+            // UUID なら固定長・記号なしなので、その問題も URL 長の暴れも起きない。
+            const idByKey = new Map(
+              (existingRows as { id: string; natural_key: string }[]).map((r) => [
+                r.natural_key,
+                r.id,
+              ]),
+            );
+            const departedIds = diff.departedParticipants
+              .map((d) => idByKey.get(d.naturalKey))
+              .filter((v): v is string => typeof v === "string");
+
+            // URL 長の上限に当たらないよう分割して投げる（件数が多いときの黙った失敗を防ぐ）
+            const CHUNK = 50;
+            let applied = 0;
+            let updateFailed = false;
+            for (let i = 0; i < departedIds.length; i += CHUNK) {
+              const chunk = departedIds.slice(i, i + CHUNK);
+              const { error: leftError, count: leftCount } = await supabase
+                .from("participants")
+                .update({ status: "left" }, { count: "exact" })
+                .in("id", chunk);
+              if (leftError) {
+                // 記録失敗は保存経路を壊さない（次回のポーリングで再度検出される）
+                console.error(`[scraper] departed update error: ${leftError.message}`);
+                updateFailed = true;
+                break;
+              }
+              applied += leftCount ?? chunk.length;
             }
+            departedApplied = applied;
+            console.log(
+              `[scraper] marked ${departedApplied}/${departedIds.length} participant(s) as left` +
+                (updateFailed ? " (一部失敗)" : ""),
+            );
           }
         }
 
@@ -243,7 +273,11 @@ Deno.serve(async (req: Request) => {
           changes = {
             new: diff.newParticipants.length,
             statusChanged: diff.statusChanges.length,
-            departed: departedApplied,
+            // **検出した件数**を報告する。DB の更新行数(departedApplied)を使うと、
+            // 並行して既に left になっていた等で更新が0行だったときに
+            // 「離脱を検出しているのに参加取消0名」と過小報告になる（PR #5 レビュー指摘）。
+            // 実際に適用できた件数は上の console.log に出している。
+            departed: diff.departedParticipants.length,
           };
 
           // イベント情報をネスト select から取得（型を安全に取り出す）
@@ -260,7 +294,7 @@ Deno.serve(async (req: Request) => {
                 eventDate: eventsData.event_date,
                 newParticipants: diff.newParticipants,
                 statusChanges: diff.statusChanges,
-                departedParticipants: diff.departedParticipants.slice(0, departedApplied),
+                departedParticipants: diff.departedParticipants,
               });
               notified = r.sent;
               console.log(

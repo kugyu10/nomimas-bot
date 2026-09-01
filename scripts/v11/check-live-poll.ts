@@ -41,7 +41,7 @@ interface ScraperResponse {
   platform?: string;
   count?: number;
   saved?: boolean;
-  changes?: { new: number; statusChanged: number };
+  changes?: { new: number; statusChanged: number; departed?: number };
   notified?: number;
   error?: string;
 }
@@ -286,15 +286,21 @@ try {
     } else {
       ok("2回目 saved === true");
     }
+    // 誤検知ゲートは **departed も含めて**0であることを要求する。
+    // 離脱検出（issue #2）を入れたので、2回目のポーリングが departed>0 を返すことは
+    // 「変化していないのに離脱と誤判定した」= まさにこの検査が防ぎたい誤検知そのもの。
+    // departed を見ないと、LINE 通知が飛び DB の行が left に書き換わっているのに
+    // 「誤検知なし」と表示して条件1を通してしまう（PR #5 レビュー指摘）。
     const changes = secondResult.body.changes;
-    if (!changes || changes.new !== 0 || changes.statusChanged !== 0) {
+    const departed = changes?.departed ?? 0;
+    if (!changes || changes.new !== 0 || changes.statusChanged !== 0 || departed !== 0) {
       fail(
-        `2回目の changes が {new:0, statusChanged:0} ではありません: ${
+        `2回目の changes が {new:0, statusChanged:0, departed:0} ではありません: ${
           JSON.stringify(changes)
         }`,
       );
     } else {
-      ok("2回目 changes={new:0, statusChanged:0}（誤検知なし）");
+      ok("2回目 changes={new:0, statusChanged:0, departed:0}（誤検知なし）");
     }
     if (secondResult.body.notified !== 0) {
       fail(

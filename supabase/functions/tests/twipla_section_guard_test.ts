@@ -76,8 +76,8 @@ Deno.test("parseTwiplaHtml: 既存の正常フィクスチャ（twipla_poll_t0.h
 // 検出と適用を分けているのがこの設計の要点なので、両方をここで固定する。
 Deno.test("diffParticipants: 既存2件・incoming 0件 → 離脱は検出されるが適用はされない", () => {
   const existing: ExistingRow[] = [
-    { natural_key: "alice", status: "attending" },
-    { natural_key: "bob", status: "interested" },
+    { natural_key: "alice", status: "attending", scraped_at: "2026-08-31T00:00:00Z" },
+    { natural_key: "bob", status: "interested", scraped_at: "2026-08-31T00:00:00Z" },
   ];
   const incoming: { naturalKey: string; displayName: string; status: string }[] = [];
 

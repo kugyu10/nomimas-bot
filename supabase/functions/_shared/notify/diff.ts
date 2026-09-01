@@ -13,6 +13,19 @@
 export interface ExistingRow {
   natural_key: string;
   status: string;
+  /**
+   * この行を**スクレイプで観測したことがあるか**の判別に使う。
+   *
+   * scraper の upsert は必ず scraped_at を入れるので、
+   * NULL の行は「ページで一度も見ていない行」= seed やシード相当の手動投入である。
+   * そういう行は「離脱した」とは言えない（ページに居た証拠が無い）ので離脱判定から外す。
+   *
+   * これが無いと、実在URLに紐づく seed 参加者
+   * （`dn:devテスト参加者` / seed.sql の EPU ...0003 → 実在の 731057）が
+   * 最初のスクレイプで 'left' に落ち、status='attending' で絞る get_confirm_targets から
+   * 恒久的に外れて E2E テストが永続的に壊れる（PR #5 レビュー HIGH 指摘）。
+   */
+  scraped_at?: string | Date | null;
 }
 
 /** 差分計算結果 */
@@ -63,13 +76,16 @@ export function diffParticipants(
       result.statusChanges.push({ displayName: p.displayName, from: prev.status, to: p.status });
     }
   }
-  // 既存にあって今回現れなかったもの = 離脱。
-  // 既に 'left' と記録済みの行は「今回も居ない」だけなので離脱として数えない
-  // （毎回のポーリングで同じ人を離脱として通知し続けないため）。
+  // 既存にあって今回現れなかったもの = 離脱。ただし2つ除外する:
+  //   - 既に 'left' の行: 「今回も居ない」だけなので再検出しない
+  //     （毎回のポーリングで同じ人を離脱として通知し続けないため）
+  //   - scraped_at が無い行: スクレイプで一度も観測していない = ページに居た証拠が無い
+  //     （seed / 手動投入。離脱と断定できないので触らない）
   for (const r of existing) {
-    if (!seen.has(r.natural_key) && r.status !== "left") {
-      result.departedParticipants.push({ naturalKey: r.natural_key, status: r.status });
-    }
+    if (seen.has(r.natural_key)) continue;
+    if (r.status === "left") continue;
+    if (!r.scraped_at) continue;
+    result.departedParticipants.push({ naturalKey: r.natural_key, status: r.status });
   }
   return result;
 }
