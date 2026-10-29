@@ -2,7 +2,7 @@
 // 実行: deno test --config supabase/functions/deno.json supabase/functions/tests/owner_line_link_test.ts
 
 import { assertEquals } from "jsr:@std/assert";
-import { parseLinkArgs, planLinks } from "../../../scripts/lib/owner_line_link.ts";
+import { parseCliArgs, parseLinkArgs, planLinks } from "../../../scripts/lib/owner_line_link.ts";
 
 const OA1 = "11111111-1111-1111-1111-111111111111";
 const OA2 = "22222222-2222-2222-2222-222222222222";
@@ -81,4 +81,75 @@ Deno.test("planLinks: 同一要求内で同じ LINE userId を2人に割り当�
   );
   assertEquals(p.updates.length, 1);
   assertEquals(p.errors.length, 1);
+});
+
+Deno.test("planLinks: 指定した member(m2) の行だけを更新対象にする", () => {
+  const ms = [members[0], { ...members[1], line_user_id: null }];
+  const p = planLinks([{ oaConfigId: OA1, authUserId: U2, lineUserId: L2 }], ms, lineUsers);
+  assertEquals(p.errors, []);
+  assertEquals(p.updates.map((u) => u.memberId), ["m2"]);
+});
+
+Deno.test("planLinks: 紐付け済みの本人への同じ --link は冪等に通る", () => {
+  const p = planLinks([{ oaConfigId: OA1, authUserId: U2, lineUserId: L2 }], members, lineUsers);
+  assertEquals(p.errors, []);
+  assertEquals(p.updates.map((u) => u.memberId), ["m2"]);
+});
+
+Deno.test("planLinks: 更新計画に現在値が入る（上書きの検知用）", () => {
+  const p = planLinks([{ oaConfigId: OA1, authUserId: U2, lineUserId: L1 }], members, lineUsers);
+  assertEquals(p.errors, []);
+  assertEquals(p.updates[0].current, L2);
+  const q = planLinks([{ oaConfigId: OA1, authUserId: U1, lineUserId: L1 }], members, lineUsers);
+  assertEquals(q.updates[0].current, null);
+});
+
+Deno.test("planLinks: 同じ member への --link 重複を弾く", () => {
+  const ms = [members[0], { ...members[1], line_user_id: null }];
+  const p = planLinks(
+    [
+      { oaConfigId: OA1, authUserId: U1, lineUserId: L1 },
+      { oaConfigId: OA1, authUserId: U1, lineUserId: L2 },
+    ],
+    ms,
+    lineUsers,
+  );
+  assertEquals(p.updates.length, 1);
+  assertEquals(p.errors.length, 1);
+});
+
+Deno.test("parseLinkArgs: UUID だけが壊れた入力を弾く", () => {
+  assertEquals(parseLinkArgs(["--link", `not-a-uuid:${U1}:${L1}`]).errors.length, 1);
+  assertEquals(parseLinkArgs(["--link", `${OA1}:not-a-uuid:${L1}`]).errors.length, 1);
+});
+
+Deno.test("parseLinkArgs: 不明な引数はエラーにし、正しい --link は残す", () => {
+  const r = parseLinkArgs(["--oops", "--link", `${OA1}:${U1}:${L1}`]);
+  assertEquals(r.errors.length, 1);
+  assertEquals(r.errors[0].includes("不明な引数"), true);
+  assertEquals(r.requests.length, 1);
+});
+
+Deno.test("parseCliArgs: --apply なしは dry-run（apply=false）", () => {
+  const r = parseCliArgs(["--link", `${OA1}:${U1}:${L1}`]);
+  assertEquals(r.errors, []);
+  assertEquals(r.apply, false);
+  assertEquals(r.requests.length, 1);
+});
+
+Deno.test("parseCliArgs: --apply と --link が揃えば apply=true", () => {
+  const r = parseCliArgs(["--link", `${OA1}:${U1}:${L1}`, "--apply"]);
+  assertEquals(r.errors, []);
+  assertEquals(r.apply, true);
+});
+
+Deno.test("parseCliArgs: --apply だけ（--link なし）はエラー", () => {
+  assertEquals(parseCliArgs(["--apply"]).errors.length, 1);
+});
+
+Deno.test("parseCliArgs: 引数なしは一覧モード（apply=false, エラーなし）", () => {
+  const r = parseCliArgs([]);
+  assertEquals(r.errors, []);
+  assertEquals(r.apply, false);
+  assertEquals(r.requests, []);
 });

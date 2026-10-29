@@ -20,7 +20,7 @@ export interface LinkRequest {
 }
 
 export interface LinkPlan {
-  updates: { memberId: string; request: LinkRequest }[];
+  updates: { memberId: string; current: string | null; request: LinkRequest }[];
   errors: string[];
 }
 
@@ -49,6 +49,22 @@ export function parseLinkArgs(args: string[]): { requests: LinkRequest[]; errors
   return { requests, errors };
 }
 
+export interface CliArgs {
+  requests: LinkRequest[];
+  apply: boolean;
+  errors: string[];
+}
+
+/** dry-run が既定。`--apply` は `--link` とセットでのみ受け付ける。 */
+export function parseCliArgs(args: string[]): CliArgs {
+  const apply = args.includes("--apply");
+  const { requests, errors } = parseLinkArgs(args.filter((a) => a !== "--apply"));
+  if (apply && requests.length === 0 && errors.length === 0) {
+    errors.push("--apply には --link が必要");
+  }
+  return { requests, apply, errors };
+}
+
 /**
  * 紐付け要求を検証する。他OAの line_users や、同じ OA の別メンバーが使用中の
  * LINE userId を誤って紐付けないよう、すべて明示的に弾く。
@@ -65,6 +81,8 @@ export function planLinks(
     if (m.line_user_id) claimed.set(`${m.oa_config_id}:${m.line_user_id}`, m.auth_user_id);
   }
 
+  const seenMembers = new Set<string>();
+
   for (const r of requests) {
     const label = `oa=${r.oaConfigId} user=${r.authUserId}`;
     const member = members.find((m) =>
@@ -72,6 +90,10 @@ export function planLinks(
     );
     if (!member) {
       plan.errors.push(`${label}: oa_members に該当行がない`);
+      continue;
+    }
+    if (seenMembers.has(member.id)) {
+      plan.errors.push(`${label}: 同じ member への --link が重複している`);
       continue;
     }
     const known = lineUsers.some((l) =>
@@ -87,7 +109,8 @@ export function planLinks(
       continue;
     }
     claimed.set(`${r.oaConfigId}:${r.lineUserId}`, r.authUserId);
-    plan.updates.push({ memberId: member.id, request: r });
+    seenMembers.add(member.id);
+    plan.updates.push({ memberId: member.id, current: member.line_user_id, request: r });
   }
   return plan;
 }

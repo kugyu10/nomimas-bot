@@ -19,7 +19,7 @@ import postgres from "npm:postgres@3.4.9";
 import {
   type LineUserRow,
   type MemberRow,
-  parseLinkArgs,
+  parseCliArgs,
   planLinks,
 } from "./lib/owner_line_link.ts";
 
@@ -33,15 +33,9 @@ if (ref !== PROD_PROJECT_REF) {
   Deno.exit(1);
 }
 
-const rawArgs = Deno.args.filter((a) => a !== "--apply");
-const apply = Deno.args.includes("--apply");
-const { requests, errors: argErrors } = parseLinkArgs(rawArgs);
+const { requests, apply, errors: argErrors } = parseCliArgs(Deno.args);
 if (argErrors.length > 0) {
-  argErrors.forEach((e) => console.error(`[setup-prod-owner-line] ${e}`));
-  Deno.exit(1);
-}
-if (apply && requests.length === 0) {
-  console.error("[setup-prod-owner-line] ABORT: --apply には --link が必要");
+  argErrors.forEach((e) => console.error(`[setup-prod-owner-line] ABORT: ${e}`));
   Deno.exit(1);
 }
 
@@ -101,12 +95,21 @@ try {
     if (plan.errors.length > 0) Deno.exit(1);
 
     for (const u of plan.updates) {
-      console.log(`[setup-prod-owner-line] ${apply ? "UPDATE" : "dry-run"} member=${u.memberId} -> ${u.request.lineUserId}`);
+      const overwrite = u.current && u.current !== u.request.lineUserId ? " (上書き)" : "";
+      console.log(
+        `[setup-prod-owner-line] ${apply ? "UPDATE" : "dry-run"} member=${u.memberId} current=${u.current ?? "(未設定)"} -> new=${u.request.lineUserId}${overwrite}`,
+      );
     }
     if (apply) {
       await sql.begin(async (tx) => {
         for (const u of plan.updates) {
-          await tx`update public.oa_members set line_user_id = ${u.request.lineUserId} where id = ${u.memberId}`;
+          const rows = await tx`
+            update public.oa_members set line_user_id = ${u.request.lineUserId}
+             where id = ${u.memberId} and oa_config_id = ${u.request.oaConfigId}
+            returning id`;
+          if (rows.length !== 1) {
+            throw new Error(`member=${u.memberId} の更新が ${rows.length} 件（ロールバック）`);
+          }
         }
       });
       console.log(`[setup-prod-owner-line] ${plan.updates.length} 件更新しました`);
