@@ -16,6 +16,13 @@ export interface ScrapedParticipant {
   status: ParticipantStatus;
 }
 
+/** ページ上の1セクションについて、ヘッダの宣言人数と実際にパースできた件数 */
+export interface ScrapedSection {
+  status: ParticipantStatus;
+  declared: number | null; // ヘッダの「(N人」。読めなければ null
+  parsed: number; // a.card.namelist から実際に取れた件数
+}
+
 export interface ScrapeResult {
   platform: string; // "twipla" 等
   sourceUrl: string;
@@ -28,6 +35,8 @@ export interface ScrapeResult {
   // sectionCount === 0 のときは participants が空でも「取得失敗」として扱うべきで、
   // 「全員が離脱した」という意味の0件と混同してはならない。
   sectionCount: number;
+  // セクションごとの宣言人数と取得件数。部分パース失敗（宣言 > 実数）の検知に使う。
+  sections: ScrapedSection[];
 }
 
 export interface ParticipantListProvider {

@@ -237,12 +237,14 @@ Deno.serve(async (req: Request) => {
         let departedApplied = 0;
         let departuresSuspended = 0;
         if (diff.departedParticipants.length > 0) {
-          if (!shouldApplyDepartures(incoming.length, existingRows.length)) {
-            // 既存が居るのに今回0件 = 取得異常の疑い。全員を配信対象から外す事故を防ぐため適用しない。
+          if (!shouldApplyDepartures(incoming.length, existingRows.length, result.sections)) {
+            // 取得異常の疑い（今回0件 / セクションの宣言人数 > 取得件数 / 参加者セクション欠落）。
+            // 全員を配信対象から外す事故を防ぐため適用しない。upsert は済んでいる。
             // 件数をレスポンスにも出す（この経路が正常系と区別できないと運用で気づけない）。
             departuresSuspended = diff.departedParticipants.length;
             console.error(
-              `[scraper] SUSPICIOUS: 既存 ${existingRows.length} 件に対し取得0件のため、` +
+              `[scraper] SUSPICIOUS: 既存 ${existingRows.length} 件に対し取得 ${incoming.length} 件` +
+                `（sections=${JSON.stringify(result.sections)}）のため、` +
                 `離脱 ${diff.departedParticipants.length} 件の記録を見送った（取得異常の疑い）`,
             );
           } else {

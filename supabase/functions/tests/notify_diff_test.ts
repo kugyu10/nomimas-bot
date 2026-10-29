@@ -4,7 +4,10 @@
 
 import { assertEquals } from "jsr:@std/assert";
 import type { ExistingRow } from "../_shared/notify/diff.ts";
-import { diffParticipants, shouldApplyDepartures } from "../_shared/notify/diff.ts";
+import { diffParticipants, isParseIncomplete, shouldApplyDepartures } from "../_shared/notify/diff.ts";
+import type { ScrapedSection } from "../_shared/providers/types.ts";
+
+const OK_SECTIONS: ScrapedSection[] = [{ status: "attending", declared: 1, parsed: 1 }];
 
 // ==================== 差分検出の4系統 ====================
 
@@ -132,16 +135,16 @@ Deno.test("diffParticipants: 取得0件でも departedParticipants は計算さ�
 // --- 誤検知への防御 ---
 
 Deno.test("shouldApplyDepartures: 既存が居るのに取得0件なら適用しない（全員を配信対象から外す事故を防ぐ）", () => {
-  assertEquals(shouldApplyDepartures(0, 5), false);
+  assertEquals(shouldApplyDepartures(0, 5, OK_SECTIONS), false);
 });
 
 Deno.test("shouldApplyDepartures: 初回スクレイプ（既存0件）は適用しない", () => {
-  assertEquals(shouldApplyDepartures(3, 0), false);
+  assertEquals(shouldApplyDepartures(3, 0, OK_SECTIONS), false);
 });
 
 Deno.test("shouldApplyDepartures: 取得が1件以上あれば適用する（割合しきい値は設けない）", () => {
-  assertEquals(shouldApplyDepartures(1, 10), true, "9名減っても正当な離脱の可能性があるので適用する");
-  assertEquals(shouldApplyDepartures(5, 5), true);
+  assertEquals(shouldApplyDepartures(1, 10, OK_SECTIONS), true, "9名減っても正当な離脱の可能性があるので適用する");
+  assertEquals(shouldApplyDepartures(5, 5, OK_SECTIONS), true);
 });
 
 Deno.test("diffParticipants: scraped_at が無い行は離脱扱いしない（seed / 手動投入を守る）", () => {
@@ -167,4 +170,35 @@ Deno.test("diffParticipants: scraped_at が null 明示でも離脱扱いしな�
     [],
   );
   assertEquals(diff.departedParticipants.length, 0);
+});
+
+Deno.test("isParseIncomplete: 宣言 > 取得のセクションがあれば不完全", () => {
+  assertEquals(
+    isParseIncomplete([
+      { status: "attending", declared: 5, parsed: 3 },
+      { status: "interested", declared: 0, parsed: 0 },
+    ]),
+    true,
+  );
+});
+
+Deno.test("isParseIncomplete: 宣言 < 取得・宣言不明は疑わない（多い方に倒れたときだけ疑う）", () => {
+  assertEquals(
+    isParseIncomplete([
+      { status: "attending", declared: 2, parsed: 3 },
+      { status: "interested", declared: null, parsed: 4 },
+    ]),
+    false,
+  );
+});
+
+Deno.test("isParseIncomplete: 参加者セクションが無ければ不完全（他セクションだけ取れた場合）", () => {
+  assertEquals(isParseIncomplete([{ status: "interested", declared: 1, parsed: 1 }]), true);
+});
+
+Deno.test("shouldApplyDepartures: パース不完全なら件数が十分でも適用しない", () => {
+  assertEquals(
+    shouldApplyDepartures(3, 10, [{ status: "attending", declared: 10, parsed: 3 }]),
+    false,
+  );
 });
