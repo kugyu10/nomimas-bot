@@ -35,8 +35,8 @@ import {
   buildQuestionMessage,
   buildRepromptMessages,
 } from "../_shared/confirm/messages.ts";
-import { handleLinkConfirm, handleLinkMessage } from "../_shared/confirm/linking.ts";
-import { notifyConfirmUpdate } from "../_shared/notify/notifier.ts";
+import { type LinkDeps, processLinkMessageEvent, processLinkPostbackEvent } from "../_shared/confirm/linking.ts";
+import { notifyConfirmUpdate, notifyOwnersText } from "../_shared/notify/notifier.ts";
 
 // Webhookペイロードのzodスキーマ（形状検証のみ）
 const WebhookPayloadSchema = z.object({
@@ -248,6 +248,14 @@ async function handleEvent(
     return;
   }
 
+  const linkDeps: LinkDeps = {
+    supabase,
+    oaConfigId: oaConfig.id,
+    getToken,
+    reply: replyMessage,
+    notifyOwners: (text) => notifyOwnersText(supabase, getToken, oaConfig.id, text),
+  };
+
   if (event.kind === "postback") {
     // WR-03: LINEから再配達された postback は処理しない（ログのみ・200）
     // 過去質問の再タップ（ルール4）は冪等でないため、旧postbackの再配達が
@@ -260,23 +268,7 @@ async function handleEvent(
 
     // 紐付け確認（「◯◯さんですか？」のはい/いいえ）は1問1答とは別形式の postback
     if (event.data.startsWith("k=link")) {
-      const { data: linkUser } = await supabase
-        .from("line_users")
-        .select("id")
-        .eq("oa_config_id", oaConfig.id)
-        .eq("line_user_id", event.userId)
-        .single();
-      const linkUserId = (linkUser as { id: string } | null)?.id;
-      if (!linkUserId) return;
-      const linkMessages = await handleLinkConfirm(supabase, oaConfig.id, linkUserId, event.data);
-      const linkToken = linkMessages ? await getToken() : null;
-      if (linkMessages && linkToken) {
-        try {
-          await replyMessage(linkToken, event.replyToken, linkMessages);
-        } catch (err) {
-          console.error(`webhook: link confirm reply failed: ${(err as Error).message}`);
-        }
-      }
+      await processLinkPostbackEvent(linkDeps, event);
       return;
     }
 
@@ -574,15 +566,7 @@ async function handleEvent(
     if (participantError || !participantRow) {
       // 進行中でないユーザー: 「@Xアカウント名」なら紐付け確認へ。それ以外は応答しない
       // （自動応答はOA Manager側の領分）
-      const linkMessages = await handleLinkMessage(supabase, oaConfig.id, event.text);
-      const linkToken = linkMessages ? await getToken() : null;
-      if (linkMessages && linkToken) {
-        try {
-          await replyMessage(linkToken, event.replyToken, linkMessages);
-        } catch (err) {
-          console.error(`webhook: link prompt reply failed: ${(err as Error).message}`);
-        }
-      }
+      await processLinkMessageEvent(linkDeps, event);
       return;
     }
 

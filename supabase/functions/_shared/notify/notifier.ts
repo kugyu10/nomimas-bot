@@ -226,6 +226,41 @@ export async function notifyConfirmUpdate(
 }
 
 /**
+ * 自己申告の紐付けなど、OA の owner/co-owner への1通テキスト通知。
+ * 窓判定・notification_logs は使わない（イベントに属さない通知のため）。失敗は throw せず件数を返す。
+ */
+export async function notifyOwnersText(
+  supabase: SupabaseClient,
+  getToken: () => Promise<string | null>,
+  oaConfigId: string,
+  text: string,
+): Promise<{ sent: number; failed: number }> {
+  const { data: members, error } = await supabase
+    .from("oa_members")
+    .select("line_user_id")
+    .eq("oa_config_id", oaConfigId);
+  if (error) {
+    console.error(`notify: oa_members select failed (kind=link): ${error.message}`);
+    return { sent: 0, failed: 0 };
+  }
+  const targets = (members ?? []).filter((m) => m.line_user_id != null);
+  const token = targets.length > 0 ? await getToken() : null;
+  if (!token) return { sent: 0, failed: targets.length };
+  let sent = 0;
+  let failed = 0;
+  for (const m of targets) {
+    try {
+      await pushMessage(token, m.line_user_id as string, [{ type: "text", text }]);
+      sent++;
+    } catch (err) {
+      console.error(`notify: push failed (kind=link): ${(err as Error).message}`);
+      failed++;
+    }
+  }
+  return { sent, failed };
+}
+
+/**
  * scraper 経路: 再スクレイプで差分が生じた時に owner/co-owner へ通知
  * トークンは notifier 内で issueStatelessToken（scraper はキャッシュを持たない）
  *

@@ -55,3 +55,13 @@ export function buildScrapeChangesNotification(
   const departed = counts.departedCount;
   return `【${eventTitle}】参加者情報が更新されました（新規${counts.newCount}名・出欠変更${counts.statusChangedCount}名・参加取消${departed}名）`;
 }
+
+/** 自己申告で紐付いたとき（なりすまし時に主催者が気づいて解除できるようにする） */
+export function buildLinkedNotification(screenName: string, lineDisplayName: string): string {
+  return `LINE「${lineDisplayName}」が @${screenName} として自己申告で紐付きました。心当たりが無い場合は管理画面で紐付けを解除してください`;
+}
+
+/** 紐付け済みの screen_name に別のLINEから申告があったとき */
+export function buildLinkClaimRejectedNotification(screenName: string, lineDisplayName: string): string {
+  return `LINE「${lineDisplayName}」が、すでに紐付け済みの @${screenName} を申告しました（拒否済み）。本人が締め出されている場合は管理画面で紐付けを解除してください`;
+}
