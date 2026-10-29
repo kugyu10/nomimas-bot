@@ -56,8 +56,8 @@ function fakeDeps(rpcResult: RpcResult, lineUser: typeof LU | null = LU) {
       replies.push({ replyToken, messages });
       return Promise.resolve();
     },
-    notifyOwners: (text) => {
-      notices.push(text);
+    notifyOwners: (oaConfigId, text) => {
+      notices.push(`${oaConfigId}|${text}`);
       return Promise.resolve();
     },
   };
@@ -65,7 +65,10 @@ function fakeDeps(rpcResult: RpcResult, lineUser: typeof LU | null = LU) {
 }
 
 const SENDER = { id: "lu-uuid", displayName: "太郎LINE" };
-const row = (outcome: string, display_name: string | null = null) => ({ data: [{ outcome, display_name }], error: null });
+const row = (outcome: string, display_name: string | null = null, notify = false) => ({
+  data: [{ outcome, display_name, notify }],
+  error: null,
+});
 const yes = encodeLinkConfirmData({ screenName: "taro_1", accepted: true });
 
 Deno.test("normalizeScreenName: @付き・全角@・URL を受け付ける", () => {
@@ -119,9 +122,15 @@ Deno.test("handleLinkMessage: already / limit / not_found / 空 → 各案内、
 });
 
 Deno.test("handleLinkMessage: taken → 本人には見つからない案内、主催者へ拒否通知", async () => {
-  const r = await handleLinkMessage(fakeSupabase(row("taken")).client, "oa-1", SENDER, "@taro_1");
+  const r = await handleLinkMessage(fakeSupabase(row("taken", null, true)).client, "oa-1", SENDER, "@taro_1");
   assertEquals(r!.messages, [LINK_NOT_FOUND_MESSAGE]);
   assertEquals(r!.ownerNotice?.includes("@taro_1") && r!.ownerNotice.includes("太郎LINE"), true);
+});
+
+Deno.test("handleLinkMessage: taken でも notify=false（通知済み）なら主催者通知を付けない", async () => {
+  const r = await handleLinkMessage(fakeSupabase(row("taken", null, false)).client, "oa-1", SENDER, "@taro_1");
+  assertEquals(r!.messages, [LINK_NOT_FOUND_MESSAGE]);
+  assertEquals(r!.ownerNotice, undefined);
 });
 
 Deno.test("handleLinkMessage: RPCエラー → null（何も返信しない）", async () => {
@@ -177,9 +186,13 @@ Deno.test("processLinkMessageEvent: @形式なら find_link_candidate → 確認
   await processLinkMessageEvent(f.deps, { userId: "Uline", replyToken: "rt", text: "@taro_1" });
   assertEquals(f.calls[0].args.p_line_user_id, "lu-uuid");
   assertEquals(f.replies.length, 1);
-  const taken = fakeDeps(row("taken"));
+  const taken = fakeDeps(row("taken", null, true));
   await processLinkMessageEvent(taken.deps, { userId: "Uline", replyToken: "rt", text: "@taro_1" });
   assertEquals(taken.notices.length, 1);
+  assertEquals(taken.notices[0].startsWith("oa-1|"), true);
+  const dup = fakeDeps(row("taken", null, false));
+  await processLinkMessageEvent(dup.deps, { userId: "Uline", replyToken: "rt", text: "@taro_1" });
+  assertEquals([dup.replies.length, dup.notices.length], [1, 0]);
   const chat = fakeDeps(row("candidate", "太郎"));
   await processLinkMessageEvent(chat.deps, { userId: "Uline", replyToken: "rt", text: "こんにちは" });
   assertEquals([chat.calls.length, chat.replies.length], [0, 0]);

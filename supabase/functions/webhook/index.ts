@@ -253,7 +253,7 @@ async function handleEvent(
     oaConfigId: oaConfig.id,
     getToken,
     reply: replyMessage,
-    notifyOwners: (text) => notifyOwnersText(supabase, getToken, oaConfig.id, text),
+    notifyOwners: (oaConfigId, text) => notifyOwnersText(supabase, getToken, oaConfigId, text),
   };
 
   if (event.kind === "postback") {

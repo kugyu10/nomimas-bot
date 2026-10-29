@@ -111,7 +111,7 @@ export interface LinkSender {
 
 const lineName = (s: LinkSender) => s.displayName ?? "（表示名不明）";
 
-type CandidateRow = { outcome: string; display_name: string | null };
+type CandidateRow = { outcome: string; display_name: string | null; notify: boolean };
 
 /** メッセージ受信時: @形式のときだけ応答。対象外・RPC失敗は null（応答しない） */
 export async function handleLinkMessage(
@@ -140,9 +140,10 @@ export async function handleLinkMessage(
     case "limit":
       return { messages: [LINK_LIMIT_MESSAGE] };
     case "taken":
+      // notify は同じ送信者につき1日1回だけ true（push 送信枠を外から消費させない）
       return {
         messages: [LINK_NOT_FOUND_MESSAGE],
-        ownerNotice: buildLinkClaimRejectedNotification(screenName, lineName(sender)),
+        ...(row.notify ? { ownerNotice: buildLinkClaimRejectedNotification(screenName, lineName(sender)) } : {}),
       };
     default:
       return { messages: [LINK_NOT_FOUND_MESSAGE] };
@@ -182,7 +183,7 @@ export interface LinkDeps {
   oaConfigId: string;
   getToken: () => Promise<string | null>;
   reply: (token: string, replyToken: string, messages: object[]) => Promise<unknown>;
-  notifyOwners: (text: string) => Promise<unknown>;
+  notifyOwners: (oaConfigId: string, text: string) => Promise<unknown>;
 }
 
 async function lookupSender(
@@ -211,7 +212,7 @@ async function respond(deps: LinkDeps, replyToken: string, r: LinkReply | null):
   }
   if (r.ownerNotice) {
     try {
-      await deps.notifyOwners(r.ownerNotice);
+      await deps.notifyOwners(deps.oaConfigId, r.ownerNotice);
     } catch (err) {
       console.error(`webhook: link owner notify failed: ${(err as Error).message}`);
     }

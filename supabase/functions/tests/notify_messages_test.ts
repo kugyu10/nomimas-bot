@@ -6,6 +6,9 @@ import { assertEquals, assertMatch, assertNotMatch } from "jsr:@std/assert";
 import {
   buildAnswerNotification,
   buildCompletionNotification,
+  buildLinkClaimRejectedNotification,
+  buildLinkedNotification,
+  sanitizeDisplayName,
   buildScrapeChangesNotification,
 } from "../_shared/notify/messages.ts";
 
@@ -91,4 +94,13 @@ Deno.test("buildCompletionNotification: eventTitle・participantName + 任意の
 Deno.test("buildScrapeChangesNotification: 引数は eventTitle と counts オブジェクトの2つのみ", () => {
   const msg = buildScrapeChangesNotification("テストイベント", { newCount: 3, statusChangedCount: 0, departedCount: 0 });
   assertEquals(typeof msg, "string");
+});
+
+Deno.test("sanitizeDisplayName: 改行・制御文字を除き20文字で切る / 通知文にも適用される", () => {
+  assertEquals(sanitizeDisplayName("a\nb\r\nc\u0007d"), "a b c d");
+  assertEquals(sanitizeDisplayName("あ".repeat(25)), `${"あ".repeat(20)}…`);
+  assertEquals(sanitizeDisplayName("太郎"), "太郎");
+  const n = buildLinkClaimRejectedNotification("taro_1", "偽\n【bot】案内");
+  assertEquals(n.includes("\n"), false);
+  assertEquals(buildLinkedNotification("taro_1", "x".repeat(30)).includes("x".repeat(21)), false);
 });

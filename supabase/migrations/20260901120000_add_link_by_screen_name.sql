@@ -12,26 +12,36 @@
 -- 確認プロンプト用。必ず1行返し、outcome で状況を伝える:
 --   candidate: 紐付け可能（display_name つき） / already: すでに自分が紐付き済みで残りなし
 --   limit: このLINEは既に別のXアカウントに紐付き済み（1LINE=1アカウント）
---   taken: そのXアカウントは別のLINEに紐付き済み（webhook が主催者へ通知する）
+--   taken: そのXアカウントは別のLINEに紐付き済み。notify=true のときだけ webhook が主催者へ通知する
+--          （同じ送信者につき1日1回。push 送信枠を外から消費されないため）
 --   not_found: 該当なし（OA違い含む）
-create or replace function public.find_link_candidate(
+create table public.link_claim_notices (
+  oa_config_id uuid not null references public.oa_configs(id) on delete cascade,
+  line_user_id uuid not null references public.line_users(id) on delete cascade,
+  notified_on date not null default (now() at time zone 'Asia/Tokyo')::date,
+  primary key (oa_config_id, line_user_id, notified_on)
+);
+alter table public.link_claim_notices enable row level security;
+
+create function public.find_link_candidate(
   p_oa_config_id uuid,
   p_screen_name text,
   p_line_user_id uuid
 )
-returns table (outcome text, display_name text)
+returns table (outcome text, display_name text, notify boolean)
 language plpgsql
 security invoker
 set search_path = ''
 as $$
 declare
   v_name text;
+  v_inserted integer;
 begin
   if not exists (
     select 1 from public.line_users lu
     where lu.id = p_line_user_id and lu.oa_config_id = p_oa_config_id
   ) then
-    return query select 'not_found'::text, null::text;
+    return query select 'not_found'::text, null::text, false;
     return;
   end if;
 
@@ -42,9 +52,10 @@ begin
     join public.events re on re.id = repu.event_id
     where re.oa_config_id = p_oa_config_id
       and r.line_user_id = p_line_user_id
-      and lower(r.screen_name) is distinct from lower(p_screen_name)
+      and r.screen_name is not null
+      and lower(r.screen_name) <> lower(p_screen_name)
   ) then
-    return query select 'limit'::text, null::text;
+    return query select 'limit'::text, null::text, false;
     return;
   end if;
 
@@ -58,7 +69,11 @@ begin
       and q.line_user_id is not null
       and q.line_user_id <> p_line_user_id
   ) then
-    return query select 'taken'::text, null::text;
+    insert into public.link_claim_notices (oa_config_id, line_user_id)
+    values (p_oa_config_id, p_line_user_id)
+    on conflict do nothing;
+    get diagnostics v_inserted = row_count;
+    return query select 'taken'::text, null::text, v_inserted > 0;
     return;
   end if;
 
@@ -73,7 +88,7 @@ begin
   limit 1;
 
   if found then
-    return query select 'candidate'::text, v_name;
+    return query select 'candidate'::text, v_name, false;
     return;
   end if;
 
@@ -86,9 +101,9 @@ begin
       and lower(q.screen_name) = lower(p_screen_name)
       and q.line_user_id = p_line_user_id
   ) then
-    return query select 'already'::text, null::text;
+    return query select 'already'::text, null::text, false;
   else
-    return query select 'not_found'::text, null::text;
+    return query select 'not_found'::text, null::text, false;
   end if;
 end;
 $$;
@@ -135,7 +150,8 @@ begin
     join public.events re on re.id = repu.event_id
     where re.oa_config_id = p_oa_config_id
       and r.line_user_id = p_line_user_id
-      and lower(r.screen_name) is distinct from lower(p_screen_name)
+      and r.screen_name is not null
+      and lower(r.screen_name) <> lower(p_screen_name)
   ) then
     return 0;
   end if;
@@ -153,6 +169,7 @@ begin
 end;
 $$;
 
+revoke all on table public.link_claim_notices from public, anon, authenticated;
 revoke all on function public.find_link_candidate(uuid, text, uuid) from public, anon, authenticated;
 revoke all on function public.link_by_screen_name(uuid, uuid, text) from public, anon, authenticated;
 grant execute on function public.find_link_candidate(uuid, text, uuid) to service_role;
