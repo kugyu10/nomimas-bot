@@ -13,7 +13,7 @@
 
 import { assertEquals } from "jsr:@std/assert";
 import type { ExistingRow } from "../_shared/notify/diff.ts";
-import { diffParticipants, shouldApplyDepartures } from "../_shared/notify/diff.ts";
+import { diffParticipants, isParseIncomplete, shouldApplyDepartures } from "../_shared/notify/diff.ts";
 import { parseTwiplaHtml } from "../_shared/providers/twipla.ts";
 
 const FIXTURE_BROKEN = new URL("./fixtures/twipla_broken_no_sections.html", import.meta.url);
@@ -91,9 +91,47 @@ Deno.test("diffParticipants: 既存2件・incoming 0件 → 離脱は検出さ�
     "消えた2名は departedParticipants として検出される",
   );
   assertEquals(
-    shouldApplyDepartures(incoming.length, existing.length),
+    shouldApplyDepartures(incoming.length, existing.length, [{ status: "attending", declared: 0, parsed: 0 }]),
     false,
     "しかし取得0件は異常の疑いなので、この検出結果を DB に適用してはいけない" +
       "（全員を確認配信の対象から外す事故になる）",
   );
+});
+
+// --- issue #6: パースの部分失敗（セクションごとの宣言人数と取得件数の整合） ---
+
+const li = (n: string) =>
+  `<li><a href="/users/${n}" class="card namelist" n="${n}" s="${n}">${n}</a></li>`;
+const section = (label: string, names: string[]) =>
+  `<div class='member_list'>${label} <br/><ul>${names.map(li).join("")}</ul></div>`;
+
+Deno.test("parseTwiplaHtml: セクションごとの宣言人数と取得件数を返す", () => {
+  const html = section("参加者 (2人／定員15人)", ["a", "b"]) + section("興味あり (1人)", ["c"]) +
+    section("不参加 (0人)", []);
+  const r = parseTwiplaHtml(html, "https://twipla.jp/events/1");
+  assertEquals(r.sections, [
+    { status: "attending", declared: 2, parsed: 2 },
+    { status: "interested", declared: 1, parsed: 1 },
+    { status: "declined", declared: 0, parsed: 0 },
+  ]);
+  assertEquals(isParseIncomplete(r.sections), false);
+});
+
+Deno.test("部分失敗: 参加者が切り詰められた（宣言3人・実際1人）→ 離脱を適用しない", () => {
+  const html = section("参加者 (3人／定員15人)", ["a"]) + section("興味あり (1人)", ["c"]);
+  const r = parseTwiplaHtml(html, "https://twipla.jp/events/1");
+  assertEquals(r.participants.length, 2, "incoming は1件以上なので件数ガードだけでは通ってしまう");
+  assertEquals(shouldApplyDepartures(r.participants.length, 3, r.sections), false);
+});
+
+Deno.test("部分失敗: 興味ありセクションだけパースできた → 離脱を適用しない", () => {
+  const r = parseTwiplaHtml(section("興味あり (1人)", ["c"]), "https://twipla.jp/events/1");
+  assertEquals(r.sectionCount, 1, "sectionCount===0 の早期 return では捕まらない");
+  assertEquals(shouldApplyDepartures(r.participants.length, 3, r.sections), false);
+});
+
+Deno.test("正当な離脱: 宣言と取得が一致していれば離脱を適用する", () => {
+  const html = section("参加者 (1人／定員15人)", ["a"]) + section("興味あり (0人)", []);
+  const r = parseTwiplaHtml(html, "https://twipla.jp/events/1");
+  assertEquals(shouldApplyDepartures(r.participants.length, 3, r.sections), true);
 });
