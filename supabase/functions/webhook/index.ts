@@ -35,6 +35,7 @@ import {
   buildQuestionMessage,
   buildRepromptMessages,
 } from "../_shared/confirm/messages.ts";
+import { handleLinkConfirm, handleLinkMessage } from "../_shared/confirm/linking.ts";
 import { notifyConfirmUpdate } from "../_shared/notify/notifier.ts";
 
 // Webhookペイロードのzodスキーマ（形状検証のみ）
@@ -254,6 +255,28 @@ async function handleEvent(
     // 二重処理を避ける（初回配達が処理済みである前提が isRedelivery の意味論）
     if (event.isRedelivery) {
       console.log("webhook: skipping redelivered postback event");
+      return;
+    }
+
+    // 紐付け確認（「◯◯さんですか？」のはい/いいえ）は1問1答とは別形式の postback
+    if (event.data.startsWith("k=link")) {
+      const { data: linkUser } = await supabase
+        .from("line_users")
+        .select("id")
+        .eq("oa_config_id", oaConfig.id)
+        .eq("line_user_id", event.userId)
+        .single();
+      const linkUserId = (linkUser as { id: string } | null)?.id;
+      if (!linkUserId) return;
+      const linkMessages = await handleLinkConfirm(supabase, oaConfig.id, linkUserId, event.data);
+      const linkToken = linkMessages ? await getToken() : null;
+      if (linkMessages && linkToken) {
+        try {
+          await replyMessage(linkToken, event.replyToken, linkMessages);
+        } catch (err) {
+          console.error(`webhook: link confirm reply failed: ${(err as Error).message}`);
+        }
+      }
       return;
     }
 
@@ -549,7 +572,17 @@ async function handleEvent(
     const participantRow = participantRowMsgData as { id: string; current_question_index: number } | null;
 
     if (participantError || !participantRow) {
-      // 進行中でないユーザー: 応答しない（自動応答はOA Manager側の領分）
+      // 進行中でないユーザー: 「@Xアカウント名」なら紐付け確認へ。それ以外は応答しない
+      // （自動応答はOA Manager側の領分）
+      const linkMessages = await handleLinkMessage(supabase, oaConfig.id, event.text);
+      const linkToken = linkMessages ? await getToken() : null;
+      if (linkMessages && linkToken) {
+        try {
+          await replyMessage(linkToken, event.replyToken, linkMessages);
+        } catch (err) {
+          console.error(`webhook: link prompt reply failed: ${(err as Error).message}`);
+        }
+      }
       return;
     }
 
