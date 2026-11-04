@@ -35,7 +35,8 @@ import {
   buildQuestionMessage,
   buildRepromptMessages,
 } from "../_shared/confirm/messages.ts";
-import { notifyConfirmUpdate } from "../_shared/notify/notifier.ts";
+import { type LinkDeps, processLinkMessageEvent, processLinkPostbackEvent } from "../_shared/confirm/linking.ts";
+import { notifyConfirmUpdate, notifyOwnersText } from "../_shared/notify/notifier.ts";
 
 // Webhookペイロードのzodスキーマ（形状検証のみ）
 const WebhookPayloadSchema = z.object({
@@ -247,6 +248,14 @@ async function handleEvent(
     return;
   }
 
+  const linkDeps: LinkDeps = {
+    supabase,
+    oaConfigId: oaConfig.id,
+    getToken,
+    reply: replyMessage,
+    notifyOwners: (oaConfigId, text) => notifyOwnersText(supabase, getToken, oaConfigId, text),
+  };
+
   if (event.kind === "postback") {
     // WR-03: LINEから再配達された postback は処理しない（ログのみ・200）
     // 過去質問の再タップ（ルール4）は冪等でないため、旧postbackの再配達が
@@ -254,6 +263,12 @@ async function handleEvent(
     // 二重処理を避ける（初回配達が処理済みである前提が isRedelivery の意味論）
     if (event.isRedelivery) {
       console.log("webhook: skipping redelivered postback event");
+      return;
+    }
+
+    // 紐付け確認（「◯◯さんですか？」のはい/いいえ）は1問1答とは別形式の postback
+    if (event.data.startsWith("k=link")) {
+      await processLinkPostbackEvent(linkDeps, event);
       return;
     }
 
@@ -549,7 +564,9 @@ async function handleEvent(
     const participantRow = participantRowMsgData as { id: string; current_question_index: number } | null;
 
     if (participantError || !participantRow) {
-      // 進行中でないユーザー: 応答しない（自動応答はOA Manager側の領分）
+      // 進行中でないユーザー: 「@Xアカウント名」なら紐付け確認へ。それ以外は応答しない
+      // （自動応答はOA Manager側の領分）
+      await processLinkMessageEvent(linkDeps, event);
       return;
     }
 
