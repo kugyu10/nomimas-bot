@@ -7,7 +7,7 @@
     "npm:@supabase/supabase-js@2.108.1": "2.108.1",
     "npm:cheerio@1.2.0": "1.2.0",
     "npm:postgres@3.4.9": "3.4.9",
-    "npm:zod@4.4.3": "4.4.3"
+    "npm:zod@4.6.7": "4.6.7"
   },
   "jsr": {
     "@std/assert@1.0.19": {
@@ -215,8 +215,8 @@
     "whatwg-mimetype@4.0.0": {
       "integrity": "sha512-QaKxh0eNIi2mE9p2vEdzfagOKHCcj1pJ56EEHGQOVxp8r9/iszLUUV7v89x9O1p/T+NlTM5W7jW6+cz4Fq1YVg=="
     },
-    "zod@4.4.3": {
-      "integrity": "sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ=="
+    "zod@4.6.7": {
+      "integrity": "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg=="
     }
   },
   "workspace": {
@@ -224,7 +224,7 @@
       "npm:@supabase/supabase-js@2.108.1",
       "npm:cheerio@1.2.0",
       "npm:postgres@3.4.9",
-      "npm:zod@4.4.3"
+      "npm:zod@4.6.7"
     ]
   }
 }
