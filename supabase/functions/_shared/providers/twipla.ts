@@ -10,6 +10,7 @@ import type {
   ParticipantListProvider,
   ParticipantStatus,
   ScrapedParticipant,
+  ScrapedSection,
   ScrapeResult,
 } from "./types.ts";
 
@@ -22,6 +23,7 @@ export function parseTwiplaHtml(html: string, sourceUrl: string): ScrapeResult {
   const $ = cheerio.load(html);
   const participants: ScrapedParticipant[] = [];
   let capacity: number | null = null;
+  const sections: ScrapedSection[] = [];
 
   // 見つかった div.member_list セクション数。
   // 0件なら「セクションはあるが空」ではなく「取得失敗（マークアップ変更等）」の可能性が高い —
@@ -51,6 +53,11 @@ export function parseTwiplaHtml(html: string, sourceUrl: string): ScrapeResult {
       }
     }
 
+    // ヘッダの宣言人数。例: "興味あり (2人) " → 2
+    const declaredMatch = label.match(/[(（]\s*(\d+)\s*人/);
+    const declared = declaredMatch ? parseInt(declaredMatch[1], 10) : null;
+    let parsed = 0;
+
     // セクション配下の a.card.namelist からのみ参加者を抽出（スコープ固定）
     // deno-lint-ignore no-explicit-any
     $(section).find("a.card.namelist").each((_: number, el: any) => {
@@ -69,7 +76,10 @@ export function parseTwiplaHtml(html: string, sourceUrl: string): ScrapeResult {
         profileUrl: profileUrl || null,
         status,
       });
+      parsed++;
     });
+
+    sections.push({ status, declared, parsed });
   });
 
   return {
@@ -79,6 +89,7 @@ export function parseTwiplaHtml(html: string, sourceUrl: string): ScrapeResult {
     capacity,
     fetchedAt: new Date().toISOString(),
     sectionCount,
+    sections,
   };
 }
 

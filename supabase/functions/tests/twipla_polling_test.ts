@@ -152,7 +152,7 @@ Deno.test("twipla_polling: t1→t5（alice がページから消える） → de
   assertEquals(diff.departedParticipants[0].naturalKey, "alice", "離脱者は alice");
   assertEquals(diff.departedParticipants[0].status, "attending", "離脱前は attending だった");
   assertEquals(
-    shouldApplyDepartures(incoming.length, existing.length),
+    shouldApplyDepartures(incoming.length, existing.length, resultT5.sections),
     true,
     "取得が1件以上あるので、この離脱は記録に適用してよい",
   );

@@ -7,6 +7,8 @@
  * upsert 前に1 select して既存 Map を作り、upsert 後にこの純関数で差分計算する。
  */
 
+import type { ScrapedSection } from "../providers/types.ts";
+
 /** upsert 前に participants テーブルから取得した既存行
  * （04-REVIEW IN-01: display_name は差分計算で未使用のため保持しない —
  *   新規/変化エントリの displayName は incoming 側から取る） */
@@ -91,13 +93,28 @@ export function diffParticipants(
 }
 
 /**
+ * パースが部分的に失敗した疑いがあるかを判定する純関数。
+ *
+ * - 宣言人数 > 取得件数のセクションがある（切り詰め・一部パース失敗）
+ * - 「参加者」セクションが無い（他セクションだけ取れた）
+ *
+ * 宣言 < 取得は疑わない（多い方に倒れたときだけ疑う非対称な判定。表示バグ等で
+ * 正当な離脱検出を止めないため）。宣言が読めないセクション（declared=null）も比較しない。
+ */
+export function isParseIncomplete(sections: ScrapedSection[]): boolean {
+  if (!sections.some((s) => s.status === "attending")) return true;
+  return sections.some((s) => s.declared !== null && s.declared > s.parsed);
+}
+
+/**
  * 離脱の記録を適用してよいかを判定する純関数。
  *
  * なぜ要るか: パースが構造的には成功しても（セクションは在る）中身が取れなかった場合、
  * 「全員が離脱した」と誤って記録しうる。それは全員を confirm 対象から外すため、
  * 「誰にも確認配信が届かない」という最悪の失敗につながる。
  *
- * 判定: **既存が居るのに今回0件だったときは適用しない。**
+ * 判定: **パース不完全（isParseIncomplete）のときは適用しない。**
+ * さらに **既存が居るのに今回0件だったときも適用しない。**
  * イベントが本当に全員取り消しになることは有り得るが、その頻度よりも
  * スクレイプ異常の頻度の方が高く、誤って全員を外す損害の方が大きいと判断した。
  * （0件でない場合は件数をログ・通知に出して運用で気づけるようにする。
@@ -106,7 +123,9 @@ export function diffParticipants(
 export function shouldApplyDepartures(
   incomingCount: number,
   existingCount: number,
+  sections: ScrapedSection[],
 ): boolean {
+  if (isParseIncomplete(sections)) return false; // 部分パース失敗の疑い
   if (existingCount === 0) return false; // 初回スクレイプ: 離脱は起こりえない
   if (incomingCount === 0) return false; // 全員消えた = 取得異常の疑い
   return true;
